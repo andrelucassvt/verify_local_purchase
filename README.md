@@ -183,8 +183,11 @@ class _MyAppState extends State<MyApp> {
       // Get the verification token
       String token;
       if (Platform.isIOS) {
+        // ⚠️ For subscriptions, use localVerificationData to get originalTransactionId
+        // For one-time purchases, use purchaseID
         token = purchase.purchaseID ?? '';
       } else {
+        // Android: Always use serverVerificationData
         token = purchase.verificationData.serverVerificationData;
       }
 
@@ -257,14 +260,31 @@ if (isValid) {
 ```dart
 final verifyPurchase = VerifyLocalPurchase();
 
-// iOS: use originalTransactionId
-// Android: use subscriptionToken
+// iOS: use originalTransactionId from localVerificationData
+// Android: use serverVerificationData
 final isActive = await verifyPurchase.verifySubscription(token);
 
 if (isActive) {
   // ✅ Grant access to premium features
 } else {
   // ❌ Subscription is expired or canceled
+}
+```
+
+**📱 Getting the correct token for subscriptions:**
+
+```dart
+import 'dart:convert';
+
+String getSubscriptionToken(PurchaseDetails purchase) {
+  if (Platform.isIOS || Platform.isMacOS) {
+    // For Apple subscriptions, parse localVerificationData to get originalTransactionId
+    final data = jsonDecode(purchase.verificationData.localVerificationData);
+    return data['originalTransactionId'] as String;
+  } else {
+    // For Google Play, use serverVerificationData
+    return purchase.verificationData.serverVerificationData;
+  }
 }
 ```
 
@@ -331,15 +351,17 @@ void main() async {
 - Uses [App Store Server API](https://developer.apple.com/documentation/appstoreserverapi)
 - Returns `false` if purchase was refunded
 - Supports both sandbox and production environments
-- Use `transactionId` for one-time purchases
-- Use `originalTransactionId` for subscriptions
+- **One-time purchases**: Use `transactionId` from `purchase.purchaseID`
+- **Subscriptions**: Use `originalTransactionId` from `purchase.verificationData.localVerificationData` (JSON)
+  - Parse the `localVerificationData` JSON to extract the `originalTransactionId` field
 
 ### 🤖 Android
 - Uses [Google Play Developer API](https://developers.google.com/android-publisher)
 - Handles OAuth2 authentication automatically
 - Returns `false` if purchase is canceled or pending
-- Use `purchaseToken` for one-time purchases
-- Use `subscriptionToken` for subscriptions
+- **Both purchases and subscriptions**: Always use `purchase.verificationData.serverVerificationData`
+  - This contains the `purchaseToken` for one-time purchases
+  - This contains the `subscriptionToken` for subscriptions
 
 ## Troubleshooting
 
