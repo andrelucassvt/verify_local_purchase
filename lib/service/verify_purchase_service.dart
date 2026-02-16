@@ -35,8 +35,14 @@ class VerifyPurchaseService {
   ///   runApp(MyApp());
   /// }
   /// ```
-  static void initialize(VerifyPurchaseConfig config) {
-    _config = config;
+  static void initialize({
+    AppleConfig? appleConfig,
+    GooglePlayConfig? googlePlayConfig,
+  }) {
+    _config = VerifyPurchaseConfig(
+      appleConfig: appleConfig,
+      googlePlayConfig: googlePlayConfig,
+    );
   }
 
   static VerifyPurchaseConfig get _getConfig {

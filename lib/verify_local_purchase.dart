@@ -31,8 +31,14 @@ class VerifyLocalPurchase {
   ///   runApp(MyApp());
   /// }
   /// ```
-  static void initialize(VerifyPurchaseConfig config) {
-    VerifyPurchaseService.initialize(config);
+  static void initialize({
+    AppleConfig? appleConfig,
+    GooglePlayConfig? googlePlayConfig,
+  }) {
+    VerifyPurchaseService.initialize(
+      appleConfig: appleConfig,
+      googlePlayConfig: googlePlayConfig,
+    );
   }
 
   /// Verify a one-time purchase (consumable or non-consumable)

@@ -8,19 +8,18 @@ import 'package:verify_local_purchase/verify_local_purchase.dart';
 void main() {
   // Initialize the verification service with your credentials
   VerifyLocalPurchase.initialize(
-    VerifyPurchaseConfig(
-      appleConfig: AppleConfig(
-        bundleId: 'com.example.app',
-        issuerId: 'your-issuer-id-here',
-        keyId: 'your-key-id-here',
-        privateKey: '''-----BEGIN PRIVATE KEY-----
+    appleConfig: AppleConfig(
+      bundleId: 'com.example.app',
+      issuerId: 'your-issuer-id-here',
+      keyId: 'your-key-id-here',
+      privateKey: '''-----BEGIN PRIVATE KEY-----
 YOUR_PRIVATE_KEY_CONTENT_HERE
 -----END PRIVATE KEY-----''',
-        useSandbox: true,
-      ),
-      googlePlayConfig: GooglePlayConfig(
-        packageName: 'com.example.app',
-        serviceAccountJson: '''
+      useSandbox: true,
+    ),
+    googlePlayConfig: GooglePlayConfig(
+      packageName: 'com.example.app',
+      serviceAccountJson: '''
 {
   "type": "service_account",
   "project_id": "your-project",
@@ -29,7 +28,6 @@ YOUR_PRIVATE_KEY_CONTENT_HERE
   "client_email": "your-service-account@your-project.iam.gserviceaccount.com",
   "client_id": "xxxxx"
 }''',
-      ),
     ),
   );
 
