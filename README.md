@@ -75,6 +75,57 @@ Run:
 flutter pub get
 ```
 
+## Quick Reference
+
+### Verify a One-Time Purchase
+
+```dart
+final verifyPurchase = VerifyLocalPurchase();
+
+// iOS: use transactionId
+// Android: use purchaseToken
+final isValid = await verifyPurchase.verifyPurchase(token);
+
+if (isValid) {
+  // ✅ Grant access to purchased content
+} else {
+  // ❌ Purchase is invalid or refunded
+}
+```
+
+### Verify a Subscription
+
+```dart
+final verifyPurchase = VerifyLocalPurchase();
+
+// iOS: use originalTransactionId from localVerificationData
+// Android: use serverVerificationData
+final isActive = await verifyPurchase.verifySubscription(token);
+
+if (isActive) {
+  // ✅ Grant access to premium features
+} else {
+  // ❌ Subscription is expired or canceled
+}
+```
+
+**📱 Getting the correct token for subscriptions:**
+
+```dart
+import 'dart:convert';
+
+String getSubscriptionToken(PurchaseDetails purchase) {
+  if (Platform.isIOS || Platform.isMacOS) {
+    // For Apple subscriptions, parse localVerificationData to get originalTransactionId
+    final data = jsonDecode(purchase.verificationData.localVerificationData);
+    return data['originalTransactionId'] as String;
+  } else {
+    // For Google Play, use serverVerificationData
+    return purchase.verificationData.serverVerificationData;
+  }
+}
+```
+
 ## Complete Example
 
 Here's a complete working example of how to use this package with the `in_app_purchase` plugin:
@@ -233,57 +284,6 @@ class _MyAppState extends State<MyApp> {
         ),
       ),
     );
-  }
-}
-```
-
-## Quick Reference
-
-### Verify a One-Time Purchase
-
-```dart
-final verifyPurchase = VerifyLocalPurchase();
-
-// iOS: use transactionId
-// Android: use purchaseToken
-final isValid = await verifyPurchase.verifyPurchase(token);
-
-if (isValid) {
-  // ✅ Grant access to purchased content
-} else {
-  // ❌ Purchase is invalid or refunded
-}
-```
-
-### Verify a Subscription
-
-```dart
-final verifyPurchase = VerifyLocalPurchase();
-
-// iOS: use originalTransactionId from localVerificationData
-// Android: use serverVerificationData
-final isActive = await verifyPurchase.verifySubscription(token);
-
-if (isActive) {
-  // ✅ Grant access to premium features
-} else {
-  // ❌ Subscription is expired or canceled
-}
-```
-
-**📱 Getting the correct token for subscriptions:**
-
-```dart
-import 'dart:convert';
-
-String getSubscriptionToken(PurchaseDetails purchase) {
-  if (Platform.isIOS || Platform.isMacOS) {
-    // For Apple subscriptions, parse localVerificationData to get originalTransactionId
-    final data = jsonDecode(purchase.verificationData.localVerificationData);
-    return data['originalTransactionId'] as String;
-  } else {
-    // For Google Play, use serverVerificationData
-    return purchase.verificationData.serverVerificationData;
   }
 }
 ```
