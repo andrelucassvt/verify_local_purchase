@@ -1,0 +1,48 @@
+# .pubignore
+# Files and directories to exclude when publishing to pub.dev
+
+# Documentation
+PUBLISHING.md
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# Build outputs
+build/
+.dart_tool/
+
+# Test files (optional - remove if you want to include tests)
+# test/
+
+# Example app build outputs
+example/build/
+example/.dart_tool/
+example/android/app/build/
+example/ios/build/
+example/macos/build/
+
+# Credentials and secrets (IMPORTANT!)
+*.p8
+*service-account*.json
+.env
+credentials.json
+secrets.dart
+*.enc
+
+# Git
+.git/
+.gitignore
+
+# CI/CD
+.github/
+
+# Local development
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+pubspec.lock
+local.properties
