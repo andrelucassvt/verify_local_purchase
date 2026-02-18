@@ -65,7 +65,7 @@ Add this to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  verify_local_purchase: ^0.0.1
+  verify_local_purchase: ^1.0.2
   in_app_purchase: ^3.2.0  # For handling purchases
 ```
 
@@ -77,13 +77,73 @@ flutter pub get
 
 ## Quick Reference
 
+**Example secure initialization:**
+
+```dart
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+
+void main() async {
+  await dotenv.load();
+  
+  VerifyLocalPurchase.initialize(
+    VerifyPurchaseConfig(
+      appleConfig: AppleConfig(
+        bundleId: dotenv.env['APPLE_BUNDLE_ID']!,
+        issuerId: dotenv.env['APPLE_ISSUER_ID']!,
+        keyId: dotenv.env['APPLE_KEY_ID']!,
+        privateKey: dotenv.env['APPLE_PRIVATE_KEY']!,
+        useSandbox: true,
+      ),
+      googlePlayConfig: GooglePlayConfig(
+        packageName: dotenv.env['ANDROID_PACKAGE_NAME']!,
+        serviceAccountJson: dotenv.env['GOOGLE_SERVICE_ACCOUNT']!,
+      ),
+    ),
+  );
+  
+  runApp(const MyApp());
+}
+```
+
+### 📱 Getting the Correct Token
+
+Before verifying, you need to extract the right token from `PurchaseDetails` depending on the platform and purchase type:
+
+```dart
+import 'dart:convert';
+import 'dart:io';
+
+/// Returns the token for a ONE-TIME purchase (consumable or non-consumable)
+String getOneTimePurchaseToken(PurchaseDetails purchase) {
+  if (Platform.isIOS || Platform.isMacOS) {
+    // iOS/macOS: use the transactionId (purchaseID)
+    return purchase.purchaseID ?? '';
+  } else {
+    // Android: use serverVerificationData (contains the purchaseToken)
+    return purchase.verificationData.serverVerificationData;
+  }
+}
+
+/// Returns the token for a SUBSCRIPTION
+String getSubscriptionToken(PurchaseDetails purchase) {
+  if (Platform.isIOS || Platform.isMacOS) {
+    // iOS/macOS: parse localVerificationData JSON to get originalTransactionId
+    // The originalTransactionId is stable across renewals and restores
+    final data = jsonDecode(purchase.verificationData.localVerificationData);
+    return data['originalTransactionId'] as String;
+  } else {
+    // Android: use serverVerificationData (contains the subscriptionToken)
+    return purchase.verificationData.serverVerificationData;
+  }
+}
+```
+
 ### Verify a One-Time Purchase
 
 ```dart
 final verifyPurchase = VerifyLocalPurchase();
 
-// iOS: use transactionId
-// Android: use purchaseToken
+// Use getOneTimePurchaseToken() above to get the correct token per platform
 final isValid = await verifyPurchase.verifyPurchase(token);
 
 if (isValid) {
@@ -98,31 +158,13 @@ if (isValid) {
 ```dart
 final verifyPurchase = VerifyLocalPurchase();
 
-// iOS: use originalTransactionId from localVerificationData
-// Android: use serverVerificationData
+// Use getSubscriptionToken() above to get the correct token per platform
 final isActive = await verifyPurchase.verifySubscription(token);
 
 if (isActive) {
   // ✅ Grant access to premium features
 } else {
   // ❌ Subscription is expired or canceled
-}
-```
-
-**📱 Getting the correct token for subscriptions:**
-
-```dart
-import 'dart:convert';
-
-String getSubscriptionToken(PurchaseDetails purchase) {
-  if (Platform.isIOS || Platform.isMacOS) {
-    // For Apple subscriptions, parse localVerificationData to get originalTransactionId
-    final data = jsonDecode(purchase.verificationData.localVerificationData);
-    return data['originalTransactionId'] as String;
-  } else {
-    // For Google Play, use serverVerificationData
-    return purchase.verificationData.serverVerificationData;
-  }
 }
 ```
 
@@ -317,33 +359,6 @@ class _MyAppState extends State<MyApp> {
 4. **Use ProGuard/R8** on Android to obfuscate your code
 5. **Monitor for unusual patterns** in purchase behavior
 
-**Example secure initialization:**
-
-```dart
-import 'package:flutter_dotenv/flutter_dotenv.dart';
-
-void main() async {
-  await dotenv.load();
-  
-  VerifyLocalPurchase.initialize(
-    VerifyPurchaseConfig(
-      appleConfig: AppleConfig(
-        bundleId: dotenv.env['APPLE_BUNDLE_ID']!,
-        issuerId: dotenv.env['APPLE_ISSUER_ID']!,
-        keyId: dotenv.env['APPLE_KEY_ID']!,
-        privateKey: dotenv.env['APPLE_PRIVATE_KEY']!,
-        useSandbox: true,
-      ),
-      googlePlayConfig: GooglePlayConfig(
-        packageName: dotenv.env['ANDROID_PACKAGE_NAME']!,
-        serviceAccountJson: dotenv.env['GOOGLE_SERVICE_ACCOUNT']!,
-      ),
-    ),
-  );
-  
-  runApp(const MyApp());
-}
-```
 
 ## Platform-Specific Notes
 
