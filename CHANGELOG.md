@@ -1,4 +1,4 @@
-## 1.0.3
+## 1.0.2
 
 * Added individual platform-specific methods to `VerifyLocalPurchase`:
   * `verifyPurchaseWithAppStore()`
