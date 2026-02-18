@@ -60,8 +60,8 @@ class VerifyPurchaseService {
   /// [purchaseToken] is the transaction ID from App Store or purchase token from Google Play
   Future<bool> verifyPurchase(String purchaseToken) async {
     return Platform.isIOS
-        ? await _verifyPurchaseWithAppStore(purchaseToken)
-        : await _verifyPurchaseWithGooglePlay(purchaseToken);
+        ? await verifyPurchaseWithAppStore(purchaseToken)
+        : await verifyPurchaseWithGooglePlay(purchaseToken);
   }
 
   /// Verify a subscription
@@ -69,11 +69,11 @@ class VerifyPurchaseService {
   /// [subscriptionToken] is the original transaction ID from App Store or subscription token from Google Play
   Future<bool> verifySubscription(String subscriptionToken) async {
     return Platform.isIOS
-        ? await _verifySubscriptionWithAppStore(subscriptionToken)
-        : await _verifySubscriptionWithGooglePlay(subscriptionToken);
+        ? await verifySubscriptionWithAppStore(subscriptionToken)
+        : await verifySubscriptionWithGooglePlay(subscriptionToken);
   }
 
-  Future<bool> _verifySubscriptionWithAppStore(String subscriptionToken) async {
+  Future<bool> verifySubscriptionWithAppStore(String subscriptionToken) async {
     final config = _getConfig;
     if (config.appleConfig == null) {
       throw Exception('Apple configuration not provided');
@@ -123,7 +123,7 @@ class VerifyPurchaseService {
     }
   }
 
-  Future<bool> _verifySubscriptionWithGooglePlay(
+  Future<bool> verifySubscriptionWithGooglePlay(
     String subscriptionToken,
   ) async {
     final config = _getConfig;
@@ -175,7 +175,7 @@ class VerifyPurchaseService {
     }
   }
 
-  Future<bool> _verifyPurchaseWithAppStore(String transactionId) async {
+  Future<bool> verifyPurchaseWithAppStore(String transactionId) async {
     final config = _getConfig;
     if (config.appleConfig == null) {
       throw Exception('Apple configuration not provided');
@@ -254,7 +254,7 @@ class VerifyPurchaseService {
     }
   }
 
-  Future<bool> _verifyPurchaseWithGooglePlay(String purchaseToken) async {
+  Future<bool> verifyPurchaseWithGooglePlay(String purchaseToken) async {
     final config = _getConfig;
     if (config.googlePlayConfig == null) {
       throw Exception('Google Play configuration not provided');

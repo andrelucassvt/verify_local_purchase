@@ -1,3 +1,11 @@
+## 1.0.3
+
+* Added individual platform-specific methods to `VerifyLocalPurchase`:
+  * `verifyPurchaseWithAppStore()`
+  * `verifyPurchaseWithGooglePlay()`
+  * `verifySubscriptionWithAppStore()`
+  * `verifySubscriptionWithGooglePlay()`
+
 ## 1.0.0
 
 * Initial release
