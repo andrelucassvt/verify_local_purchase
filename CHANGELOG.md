@@ -1,3 +1,5 @@
+## 1.0.3
+  * new doc
 ## 1.0.2
 
 * Added individual platform-specific methods to `VerifyLocalPurchase`:

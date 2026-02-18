@@ -1,6 +1,6 @@
 name: verify_local_purchase
 description: A Flutter package for verifying in-app purchases and subscriptions locally on device with Apple App Store and Google Play Store.
-version: 1.0.2
+version: 1.0.3
 homepage: https://github.com/andrelucassvt/verify_local_purchase
 repository: https://github.com/andrelucassvt/verify_local_purchase
 issue_tracker: https://github.com/andrelucassvt/verify_local_purchase/issues
