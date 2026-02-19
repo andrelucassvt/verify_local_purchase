@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
@@ -188,13 +187,7 @@ class _PurchaseExamplePageState extends State<PurchaseExamplePage> {
   ) async {
     try {
       // Get token for verification (iOS uses transactionId, Android uses purchaseToken)
-      String verificationToken;
-      if (Platform.isIOS) {
-        verificationToken = purchaseDetails.purchaseID ?? '';
-      } else {
-        verificationToken =
-            purchaseDetails.verificationData.serverVerificationData;
-      }
+      String verificationToken = getOneTimePurchaseToken(purchaseDetails);
 
       if (verificationToken.isEmpty) {
         debugPrint('⚠️ Empty verification token');

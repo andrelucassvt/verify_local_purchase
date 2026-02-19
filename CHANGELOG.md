@@ -1,3 +1,6 @@
+## 1.0.4
+  * purchase_token_utils.dart
+
 ## 1.0.3
   * new doc
 ## 1.0.2
