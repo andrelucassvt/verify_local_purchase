@@ -1,3 +1,7 @@
+## 1.0.5
+
+* docs: add Google Play Android Developer API enablement step in Google Cloud Console setup
+
 ## 1.0.4
   * purchase_token_utils.dart
 
