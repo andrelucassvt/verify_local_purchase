@@ -37,23 +37,24 @@ Before using this package, you need to get API credentials from each platform:
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
 2. Select your project (or create one)
-3. Navigate to **IAM & Admin** > **Service Accounts**
+3. Navigate to **APIs & Services** > **Library**, search for **Google Play Android Developer API** and click **Enable**
+4. Navigate to **IAM & Admin** > **Service Accounts**
 4. Click **Create Service Account**
-5. Name it (e.g., "In-App Purchase Verifier")
-6. Grant role: **Pub/Sub** > **Pub/Sub Editor** (or create custom role)
-7. Click **Done**
-8. Click on the created service account
-9. Go to **Keys** tab > **Add Key** > **Create new key**
-10. Choose **JSON** format and click **Create**
-11. The JSON file will be downloaded automatically
+6. Name it (e.g., "In-App Purchase Verifier")
+7. Grant role: **Pub/Sub** > **Pub/Sub Editor** (or create custom role)
+8. Click **Done**
+9. Click on the created service account
+10. Go to **Keys** tab > **Add Key** > **Create new key**
+11. Choose **JSON** format and click **Create**
+12. The JSON file will be downloaded automatically
 
 **Now link it to Google Play:**
 
-12. Go to [Google Play Console](https://play.google.com/console/)
-13. Navigate to **Setup** > **API access**
-14. Click **Link** next to your service account
-15. Grant permissions: **View financial data** and **Manage orders**
-16. Click **Invite user** and then **Invite user** again
+13. Go to [Google Play Console](https://play.google.com/console/)
+14. Navigate to **Setup** > **API access**
+15. Click **Link** next to your service account
+16. Grant permissions: **View financial data** and **Manage orders**
+17. Click **Invite user** and then **Invite user** again
 
 **You'll need:**
 - ✅ Service Account JSON file (entire content)
@@ -391,6 +392,10 @@ class _MyAppState extends State<MyApp> {
 - Check API credentials are correct
 - Ensure private key includes header/footer lines
 - Verify Issuer ID and Key ID match
+
+#### Google: "403 Forbidden" or "API not enabled"
+- The **Google Play Android Developer API** is not enabled in Google Cloud Console
+- Go to **APIs & Services** > **Library**, search for **Google Play Android Developer API** and click **Enable**
 
 #### Google: "401 Unauthorized"
 - Service account lacks permissions
