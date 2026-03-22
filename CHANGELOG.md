@@ -1,3 +1,7 @@
+## 1.0.7
+
+* docs: remove dotenv example from README
+
 ## 1.0.6
 
 * fix: consider `SUBSCRIPTION_STATE_PENDING` as valid active state when verifying Google Play subscriptions
