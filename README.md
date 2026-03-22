@@ -78,26 +78,22 @@ flutter pub get
 
 ## Quick Reference
 
-**Example secure initialization:**
+**Initialization:**
 
 ```dart
-import 'package:flutter_dotenv/flutter_dotenv.dart';
-
 void main() async {
-  await dotenv.load();
-  
   VerifyLocalPurchase.initialize(
     VerifyPurchaseConfig(
       appleConfig: AppleConfig(
-        bundleId: dotenv.env['APPLE_BUNDLE_ID']!,
-        issuerId: dotenv.env['APPLE_ISSUER_ID']!,
-        keyId: dotenv.env['APPLE_KEY_ID']!,
-        privateKey: dotenv.env['APPLE_PRIVATE_KEY']!,
+        bundleId: 'com.example.app',
+        issuerId: 'your-issuer-id',
+        keyId: 'your-key-id',
+        privateKey: '-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----',
         useSandbox: true,
       ),
       googlePlayConfig: GooglePlayConfig(
-        packageName: dotenv.env['ANDROID_PACKAGE_NAME']!,
-        serviceAccountJson: dotenv.env['GOOGLE_SERVICE_ACCOUNT']!,
+        packageName: 'com.example.app',
+        serviceAccountJson: '{ ... }',
       ),
     ),
   );
