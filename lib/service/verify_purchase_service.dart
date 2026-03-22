@@ -160,7 +160,8 @@ class VerifyPurchaseService {
           final data = jsonDecode(response.body) as Map<String, dynamic>;
           final subscriptionState = data['subscriptionState'] as String?;
           // ACTIVE = active, CANCELED = canceled, PENDING = pending
-          return subscriptionState == 'SUBSCRIPTION_STATE_ACTIVE';
+          return subscriptionState == 'SUBSCRIPTION_STATE_ACTIVE' ||
+              subscriptionState == 'SUBSCRIPTION_STATE_PENDING';
         } else {
           throw Exception(
             'Failed to verify subscription with Google Play: ${response.statusCode} - ${response.body}',

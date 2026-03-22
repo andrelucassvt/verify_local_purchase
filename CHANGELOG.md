@@ -1,3 +1,7 @@
+## 1.0.6
+
+* fix: consider `SUBSCRIPTION_STATE_PENDING` as valid active state when verifying Google Play subscriptions
+
 ## 1.0.5
 
 * docs: add Google Play Android Developer API enablement step in Google Cloud Console setup
