@@ -1,6 +1,7 @@
 ## 1.0.7
 
 * docs: remove dotenv example from README
+* feat: export `in_app_purchase` package for convenience
 
 ## 1.0.6
 

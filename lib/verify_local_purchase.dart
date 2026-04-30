@@ -1,6 +1,7 @@
 export 'models/verify_purchase_config.dart';
 export 'service/verify_purchase_service.dart';
 export 'utils/purchase_token_utils.dart';
+export 'package:in_app_purchase/in_app_purchase.dart';
 
 import 'models/verify_purchase_config.dart';
 import 'service/verify_purchase_service.dart';
