@@ -1,63 +1,56 @@
-# Base App Flutter — Codex Agent Instructions
+# verify_local_purchase
 
-Este arquivo fornece contexto e regras obrigatórias para o agente ao trabalhar neste projeto Flutter.
+Pacote/plugin Flutter publicável (pub.dev) que verifica compras e assinaturas in-app **no dispositivo**, consultando a App Store Server API (Apple) e a Google Play Developer API (Google) — sem backend próprio.
 
----
+## Stack
 
-## Arquivos de instrução detalhados
+- Dart `^3.10.0` / Flutter `>=3.3.0` — projeto do tipo **plugin package** (Android/iOS/macOS)
+- `app_store_server_sdk` — cliente da App Store Server API
+- `googleapis_auth` — autenticação Service Account para a Google Play Developer API
+- `in_app_purchase` — reexportado pela API pública; origem dos `PurchaseDetails`
 
-Antes de gerar ou modificar código, leia o arquivo de arquitetura **sempre** e depois a skill correspondente à camada modificada:
+## Arquitetura
 
-| Arquivo | Quando ler |
-|---|---|
-| `.github/instructions/architecture.instructions.md` | **Sempre** — regras gerais de arquitetura |
+Fachada estática pública `VerifyLocalPurchase` → delega para `VerifyPurchaseService` (toda a lógica de verificação e estado da config). **Não** é Clean Architecture com Presentation/Domain/Data — é um pacote. O scaffold de platform channel (`*_platform_interface.dart`, `*_method_channel.dart`, código nativo Swift/Kotlin) existe por ser plugin, mas só expõe `getPlatformVersion()` e **não participa da verificação** — a verificação é 100% Dart via HTTP.
 
-## 🛠️ Skills especializadas
+## Estrutura
 
-Leia o arquivo da skill antes de executar a tarefa correspondente:
+- `lib/verify_local_purchase.dart` — API pública (fachada) + exports do pacote
+- `lib/service/verify_purchase_service.dart` — lógica de verificação Apple/Google; `_config` estático
+- `lib/models/verify_purchase_config.dart` — `VerifyPurchaseConfig`, `AppleConfig`, `GooglePlayConfig`
+- `lib/utils/purchase_token_utils.dart` — extrai o token certo de `PurchaseDetails`
+- `lib/verify_local_purchase_{platform_interface,method_channel}.dart` — boilerplate de plugin (não usado na verificação)
+- `example/` — app de exemplo do plugin
+- `flow/` — documentação dos fluxos do pacote
 
-| Skill | Arquivo | Quando usar |
-|---|---|---|
-| `implement-view` | `.agents/skills/implement-view/SKILL.md` | Ao criar ou modificar Views em `lib/presentation/**/view/**` |
-| `implement-view-model` | `.agents/skills/implement-view-model/SKILL.md` | Ao criar ou modificar Cubits/States em `lib/presentation/**/view_model/**` |
-| `implement-widget` | `.agents/skills/implement-widget/SKILL.md` | Ao criar ou modificar Widgets em `lib/presentation/**/widgets/**` ou `lib/common/widgets/**` |
-| `implement-domain` | `.agents/skills/implement-domain/SKILL.md` | Ao trabalhar em `lib/domain/**` |
-| `implement-data` | `.agents/skills/implement-data/SKILL.md` | Ao trabalhar em `lib/data/**` |
-| `configure-di` | `.agents/skills/configure-di/SKILL.md` | Ao trabalhar em `lib/config/inject/**` |
-| `configure-navigation` | `.agents/skills/configure-navigation/SKILL.md` | Ao trabalhar em `lib/config/routes/**` ou navegação |
-| `analyze-view` | `.agents/skills/analyze-view/SKILL.md` | Ao revisar, auditar ou refatorar arquivos de View |
-| `custom-paint` | `.agents/skills/custom-paint/SKILL.md` | Ao desenhar formas, gráficos, canvas ou animações 2D com CustomPaint |
-| `guideline-apple` | `.agents/skills/guideline-apple/SKILL.md` | Ao preparar ou auditar o app para submissão na App Store |
-| `implement-service` | `.agents/skills/implement-service/SKILL.md` | Ao criar ou modificar Services em `lib/common/services/**` — flags, contadores, gating, onboarding, premium check, ações únicas |
-| `implement-in-app-purchase` | `.agents/skills/implement-in-app-purchase/SKILL.md` | Ao implementar compras in-app, assinaturas ou paywall |
-| `implement-admob` | `.agents/skills/implement-admob/SKILL.md` | Ao trabalhar com anúncios AdMob |
-| `implement-auth-token-flow` | `.agents/skills/implement-auth-token-flow/SKILL.md` | Ao implementar autenticação com Bearer token, login, refresh token ou logout |
-| `implement-firebase-notifications` | `.agents/skills/implement-firebase-notifications/SKILL.md` | Ao implementar ou auditar push notifications via Firebase Cloud Messaging (iOS + Android) |
-| `flutter-isolates` | `.agents/skills/flutter-isolates/SKILL.md` | Ao trabalhar com paralelismo, concorrência, performance de UI, jank ou tarefas CPU-intensivas — compute(), Isolate.spawn, Isolate.run, SendPort, ReceivePort |
-| `flutter-animating-apps` | `.agents/skills/flutter-animating-apps/SKILL.md` | Ao implementar animações visuais, efeitos, transições de tela, hero animations, animações implícitas/explícitas ou physics-based animations |
-| `image-to-code` | `.agents/skills/image-to-code/SKILL.md` | Ao receber uma imagem de referência (mockup, screenshot, protótipo) e pedir para replicar o design em Flutter |
+## Comandos
 
----
+- `flutter analyze` — análise estática
+- `flutter test` — testes unitários
+- `dart format .` — formatação
+- `cd example && flutter run` — roda o app de exemplo
 
-## ⚡ Regras Globais
+## Convenções
 
-- **Arquitetura**: `presentation` → `domain` ← `data` (Clean Architecture)
-- **Imports**: SEMPRE absolutos — `package:base_app/...` — NUNCA relativos
-- **State management**: Cubit (BLoC) — `flutter_bloc`
-- **Error handling**: `Result<T>` (Ok/Error) — NUNCA relance exceções
-- **DI**: GetIt via `AppInjector` — Cubits → `registerFactory`; resto → `registerLazySingleton`
-- **Navegação**: GoRouter — SEMPRE na View ou `BlocListener`, NUNCA no Cubit
-- **Textos na UI**: SEMPRE `context.l10n.<chave>` — ZERO strings hardcoded
-- **Entities**: `@immutable`, `const`, `final`, `copyWith()`, `==`, `hashCode`
-- **SafeArea**: SEMPRE envolva o conteúdo principal da View com `SafeArea`
-- **Performance**: NUNCA crie `Widget _buildXxx()` nem classes privadas de widget dentro da View — extraia para `widgets/` (reutilizável) ou `content/` (auxiliar específico); dialog/bottomSheet são exceção
-- **Repositories**: SEMPRE envolva chamadas em `try/catch` e retorne `Result.error(...)`
-- **Cubit async**: SEMPRE emita `Loading` primeiro → chame o repository → use `result.when()`
-- **Nunca** crie arquivos `.md` para documentar mudanças de código
+- Verificação é por plataforma de execução: `Platform.isIOS` → App Store; caso contrário → Google Play.
+- `VerifyPurchaseService` exige `initialize()` antes de qualquer verificação — senão lança `Exception`.
+- Métodos de verificação retornam `Future<bool>`; falhas de API/config são lançadas como `Exception`.
+- Antes de mexer no comportamento de verificação, leia o flow relevante em `flow/`.
 
-## 🧭 Fluxo para nova feature
+## Gotchas
 
-1. **Mínimo obrigatório**: View + Cubit + State + rota + DI
-2. **Dados locais**: injete `StorageService` diretamente no Cubit
-3. **API externa**: crie também Entity + Repository Interface + Model + DataSource + RepositoryImpl
-4. Siga a estrutura de pastas descrita em `architecture.instructions.md`
+- A config (`_config`) é **estática e global**: uma `initialize()` sobrescreve a anterior; não há suporte a múltiplas configs por processo.
+- Assinatura iOS (`verifySubscriptionWithAppStore`) retorna no **primeiro** `lastTransaction` do **primeiro** `status` — não agrega múltiplos grupos de assinatura. Revisar antes de assumir suporte multi-grupo.
+- Android trata `SUBSCRIPTION_STATE_PENDING` como assinatura ativa.
+- `getSubscriptionToken` (iOS) faz `data['originalTransactionId'] as String` sem null-check — lança se a chave faltar.
+
+## Não fazer
+
+- Não introduzir camadas de app (Cubit/Presentation/Domain/Data) — este é um pacote, não um app.
+- Não criar arquivos barrel/export adicionais; os exports vivem em `lib/verify_local_purchase.dart`.
+- Não fazer `flutter pub upgrade` sem perguntar — versões são pinadas.
+- Logs de debug usam `debugPrint` (com emoji/PT-BR) no service; mantenha o padrão existente do arquivo ao editá-lo.
+
+## 📖 Documentação de Flows
+
+Para qualquer feature ou fluxo, verifique a pasta `./flow/`: leia os títulos dos arquivos `.md` disponíveis e, se algum for relevante para a tarefa atual, leia-o antes de implementar ou debugar. Use `/flow <nome>` para criar ou atualizar flows individuais.
