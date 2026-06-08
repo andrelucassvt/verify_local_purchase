@@ -1,8 +1,10 @@
+export 'models/refund_entry.dart';
 export 'models/verify_purchase_config.dart';
 export 'service/verify_purchase_service.dart';
 export 'utils/purchase_token_utils.dart';
 export 'package:in_app_purchase/in_app_purchase.dart';
 
+import 'models/refund_entry.dart';
 import 'models/verify_purchase_config.dart';
 import 'service/verify_purchase_service.dart';
 
@@ -91,5 +93,35 @@ class VerifyLocalPurchase {
     String subscriptionToken,
   ) async {
     return _service.verifySubscriptionWithGooglePlay(subscriptionToken);
+  }
+
+  /// List refunds for a single customer using the App Store Server API.
+  ///
+  /// Scope: refunds tied to [originalTransactionId] — one customer at a time.
+  /// Requires [AppleConfig] to be set in [initialize].
+  Future<List<RefundEntry>> getRefundsWithAppStore(
+    String originalTransactionId,
+  ) async {
+    return _service.getRefundsWithAppStore(originalTransactionId);
+  }
+
+  /// List refunds for the entire app using the Google Play Developer API.
+  ///
+  /// Scope: all voided purchases in the app, paginated — not per-customer.
+  /// [startTime] and [endTime] are optional; the API defaults to the last 30 days.
+  ///
+  /// **Note:** [RefundEntry.productId] is always `null` for Google results — the
+  /// `voidedpurchases` endpoint does not return the product ID. Cross-reference
+  /// [RefundEntry.originalId] (purchaseToken) with another API call if needed.
+  ///
+  /// Requires the Service Account to have Financial permissions in Play Console.
+  Future<List<RefundEntry>> getRefundsWithGooglePlay({
+    DateTime? startTime,
+    DateTime? endTime,
+  }) async {
+    return _service.getRefundsWithGooglePlay(
+      startTime: startTime,
+      endTime: endTime,
+    );
   }
 }

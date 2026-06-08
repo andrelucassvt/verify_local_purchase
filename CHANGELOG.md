@@ -1,3 +1,9 @@
+## 1.1.0
+
+* feat: add `getRefundsWithAppStore()` — lists refunds for a single customer via App Store Server API (`getRefundHistory`)
+* feat: add `getRefundsWithGooglePlay()` — lists all voided purchases for the app via Google Play Developer API (`voidedpurchases`) with automatic pagination
+* feat: add `RefundEntry` model (+ `RefundPlatform` enum) exported in public API
+
 ## 1.0.8
 
 * feat: export `in_app_purchase` package for convenience

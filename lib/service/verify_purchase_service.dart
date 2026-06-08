@@ -5,6 +5,7 @@ import 'package:app_store_server_sdk/app_store_server_sdk.dart';
 import 'package:flutter/foundation.dart';
 import 'package:googleapis_auth/auth_io.dart';
 
+import '../models/refund_entry.dart';
 import '../models/verify_purchase_config.dart';
 
 class VerifyPurchaseService {
@@ -252,6 +253,152 @@ class VerifyPurchaseService {
       );
     } catch (e) {
       throw Exception('Error verifying purchase with App Store: $e');
+    }
+  }
+
+  /// Lista os reembolsos de UM cliente na App Store.
+  ///
+  /// Escopo: reembolsos associados ao [originalTransactionId] informado.
+  /// Requer que [AppleConfig] esteja configurado no [initialize].
+  Future<List<RefundEntry>> getRefundsWithAppStore(
+    String originalTransactionId,
+  ) async {
+    final config = _getConfig;
+    if (config.appleConfig == null) {
+      throw Exception('Apple configuration not provided');
+    }
+
+    try {
+      debugPrint(
+        '🔍 Buscando reembolsos na App Store para originalTransactionId: '
+        '$originalTransactionId',
+      );
+
+      final appStoreEnvironment = config.appleConfig!.useSandbox
+          ? AppStoreEnvironment.sandbox(
+              bundleId: config.appleConfig!.bundleId,
+              issuerId: config.appleConfig!.issuerId,
+              keyId: config.appleConfig!.keyId,
+              privateKey: config.appleConfig!.privateKey,
+            )
+          : AppStoreEnvironment.live(
+              bundleId: config.appleConfig!.bundleId,
+              issuerId: config.appleConfig!.issuerId,
+              keyId: config.appleConfig!.keyId,
+              privateKey: config.appleConfig!.privateKey,
+            );
+
+      final appStoreHttpClient = AppStoreServerHttpClient(appStoreEnvironment);
+      final api = AppStoreServerAPI(appStoreHttpClient);
+
+      final refundResponse = await api.getRefundHistory(originalTransactionId);
+
+      return refundResponse.signedTransactions.map((signed) {
+        final tx = JWSTransactionDecodedPayload.fromEncodedPayload(signed);
+        return RefundEntry.fromAppleTransaction(tx);
+      }).toList();
+    } on ApiException catch (e) {
+      throw Exception(
+        'App Store API error (code: ${e.error?.errorCode}): '
+        '${e.error?.errorMessage}',
+      );
+    } catch (e) {
+      throw Exception('Erro ao buscar reembolsos na App Store: $e');
+    }
+  }
+
+  /// Lista os reembolsos do APP INTEIRO no Google Play, com paginação automática.
+  ///
+  /// Escopo: todos os reembolsos do app num período (não filtra por usuário).
+  /// [startTime] e [endTime] são opcionais; se omitidos, a API retorna os
+  /// últimos 30 dias por padrão.
+  ///
+  /// **Nota:** O endpoint `voidedpurchases` não retorna `productId` — o campo
+  /// ficará nulo em cada [RefundEntry]. Para obter o produto, cruze o
+  /// `originalId` (purchaseToken) com outro endpoint.
+  ///
+  /// Requer permissão de Financeiro no Service Account do Play Console.
+  Future<List<RefundEntry>> getRefundsWithGooglePlay({
+    DateTime? startTime,
+    DateTime? endTime,
+  }) async {
+    final config = _getConfig;
+    if (config.googlePlayConfig == null) {
+      throw Exception('Google Play configuration not provided');
+    }
+
+    try {
+      debugPrint('🔍 Buscando reembolsos no Google Play...');
+
+      final jsonMap =
+          jsonDecode(config.googlePlayConfig!.serviceAccountJson)
+              as Map<String, dynamic>;
+      final credentials = ServiceAccountCredentials.fromJson(jsonMap);
+      final scopes = ['https://www.googleapis.com/auth/androidpublisher'];
+      final authClient = await clientViaServiceAccount(credentials, scopes);
+
+      try {
+        final results = <RefundEntry>[];
+        String? pageToken;
+
+        do {
+          final queryParams = <String, String>{};
+          if (startTime != null) {
+            queryParams['startTime'] =
+                startTime.millisecondsSinceEpoch.toString();
+          }
+          if (endTime != null) {
+            queryParams['endTime'] =
+                endTime.millisecondsSinceEpoch.toString();
+          }
+          if (pageToken != null) {
+            queryParams['token'] = pageToken;
+          }
+
+          final uri = Uri.https(
+            'androidpublisher.googleapis.com',
+            '/androidpublisher/v3/applications/'
+                '${config.googlePlayConfig!.packageName}'
+                '/purchases/voidedpurchases',
+            queryParams,
+          );
+
+          final response = await authClient.get(uri);
+
+          if (response.statusCode != 200) {
+            throw Exception(
+              'Falha ao buscar reembolsos no Google Play: '
+              '${response.statusCode} - ${response.body}',
+            );
+          }
+
+          final body = jsonDecode(response.body) as Map<String, dynamic>;
+          final purchases =
+              (body['voidedPurchases'] as List<dynamic>?) ?? [];
+
+          for (final item in purchases) {
+            results.add(
+              RefundEntry.fromGoogleVoidedPurchase(
+                item as Map<String, dynamic>,
+              ),
+            );
+          }
+
+          final nextToken =
+              (body['tokenPagination'] as Map<String, dynamic>?)?['nextPageToken']
+                  as String?;
+          pageToken = (nextToken != null && nextToken != pageToken)
+              ? nextToken
+              : null;
+        } while (pageToken != null);
+
+        debugPrint('✅ ${results.length} reembolso(s) encontrado(s) no Google Play');
+        return results;
+      } finally {
+        authClient.close();
+      }
+    } catch (e) {
+      throw Exception('Erro ao buscar reembolsos no Google Play: $e');
     }
   }
 
