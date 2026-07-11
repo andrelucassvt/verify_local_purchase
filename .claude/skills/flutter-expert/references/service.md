@@ -423,16 +423,25 @@ class GeneratorError extends GeneratorState {
 ```dart
 BlocBuilder<GeneratorCubit, GeneratorState>(
   bloc: _cubit,
-  builder: (context, state) => switch (state) {
-    GeneratorInitial() => const SizedBox.shrink(),
-    GeneratorLoading() => const Center(child: CircularProgressIndicator()),
-    GeneratorSuccess(:final result) => Text(result),
-    GeneratorPremiumRequired() => PremiumRequiredContent(
-      onUpgrade: () => context.push(AppRoutes.purchase),
-    ),
-    GeneratorAccessInfo(:final remainingFree) =>
-      Text(context.l10n.remainingFreeUses(remainingFree)),
-    GeneratorError(:final message) => Text(message),
+  builder: (context, state) {
+    if (state is GeneratorLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (state is GeneratorSuccess) {
+      return Text(state.result);
+    }
+    if (state is GeneratorPremiumRequired) {
+      return PremiumRequiredContent(
+        onUpgrade: () => context.push(AppRoutes.purchase),
+      );
+    }
+    if (state is GeneratorAccessInfo) {
+      return Text(context.l10n.remainingFreeUses(state.remainingFree));
+    }
+    if (state is GeneratorError) {
+      return Text(state.message);
+    }
+    return const SizedBox.shrink();
   },
 )
 ```

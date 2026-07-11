@@ -18,10 +18,11 @@ Fachada estática pública `VerifyLocalPurchase` → delega para `VerifyPurchase
 - `lib/verify_local_purchase.dart` — API pública (fachada) + exports do pacote
 - `lib/service/verify_purchase_service.dart` — lógica de verificação Apple/Google; `_config` estático
 - `lib/models/verify_purchase_config.dart` — `VerifyPurchaseConfig`, `AppleConfig`, `GooglePlayConfig`
+- `lib/models/refund_entry.dart` — `RefundEntry`, `RefundPlatform`; normaliza reembolsos Apple/Google
 - `lib/utils/purchase_token_utils.dart` — extrai o token certo de `PurchaseDetails`
 - `lib/verify_local_purchase_{platform_interface,method_channel}.dart` — boilerplate de plugin (não usado na verificação)
 - `example/` — app de exemplo do plugin
-- `flow/` — documentação dos fluxos do pacote
+- `docs/flow/` — documentação dos fluxos do pacote
 
 ## Comandos
 
@@ -35,7 +36,7 @@ Fachada estática pública `VerifyLocalPurchase` → delega para `VerifyPurchase
 - Verificação é por plataforma de execução: `Platform.isIOS` → App Store; caso contrário → Google Play.
 - `VerifyPurchaseService` exige `initialize()` antes de qualquer verificação — senão lança `Exception`.
 - Métodos de verificação retornam `Future<bool>`; falhas de API/config são lançadas como `Exception`.
-- Antes de mexer no comportamento de verificação, leia o flow relevante em `flow/`.
+- Antes de mexer no comportamento de verificação, leia o flow relevante em `docs/flow/`.
 
 ## Gotchas
 
@@ -43,6 +44,7 @@ Fachada estática pública `VerifyLocalPurchase` → delega para `VerifyPurchase
 - Assinatura iOS (`verifySubscriptionWithAppStore`) retorna no **primeiro** `lastTransaction` do **primeiro** `status` — não agrega múltiplos grupos de assinatura. Revisar antes de assumir suporte multi-grupo.
 - Android trata `SUBSCRIPTION_STATE_PENDING` como assinatura ativa.
 - `getSubscriptionToken` (iOS) faz `data['originalTransactionId'] as String` sem null-check — lança se a chave faltar.
+- Reembolsos têm escopos diferentes: `getRefundsWithAppStore` é por cliente (`originalTransactionId`); `getRefundsWithGooglePlay` é do app inteiro (paginado, últimos 30 dias por padrão). `RefundEntry.productId` é sempre `null` no Google; `RefundEntry.reasonCode` é sempre `null` na Apple (SDK 1.2.10).
 
 ## Não fazer
 
@@ -53,4 +55,12 @@ Fachada estática pública `VerifyLocalPurchase` → delega para `VerifyPurchase
 
 ## 📖 Documentação de Flows
 
-Para qualquer feature ou fluxo, verifique a pasta `./flow/`: leia os títulos dos arquivos `.md` disponíveis e, se algum for relevante para a tarefa atual, leia-o antes de implementar ou debugar. Use `/flow <nome>` para criar ou atualizar flows individuais.
+Para qualquer feature ou fluxo, verifique a pasta `./docs/flow/`: leia os títulos dos arquivos `.md` disponíveis e, se algum for relevante para a tarefa atual, leia-o antes de implementar ou debugar. Invoque a skill `flow` para criar ou atualizar flows individuais.
+
+## 🧪 Teste funcional
+
+Após implementar, não execute o projeto para validar o resultado (rodar o app, emulador/simulador, dispositivo físico, servidor local, screenshots ou interação simulada). Teste funcional/visual é responsabilidade do usuário.
+
+- Limite a verificação a análise estática, build/compile e testes automatizados
+- Ao concluir, liste objetivamente o que o usuário deve testar manualmente
+- Não pergunte se deve executar o projeto — só faça isso se o usuário pedir explicitamente

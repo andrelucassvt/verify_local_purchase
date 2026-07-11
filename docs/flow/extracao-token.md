@@ -1,3 +1,12 @@
+---
+generated_at: 2026-07-10
+source_commit: d18a88b
+source_state: dirty
+verified_at: 2026-07-10
+status: current
+related_plans: []
+---
+
 # Flow: Extração de Token de Compra
 
 > **Resumo:** Funções utilitárias puras que extraem o token correto a partir do `PurchaseDetails` do pacote `in_app_purchase`, para alimentar as verificações de compra única e de assinatura.

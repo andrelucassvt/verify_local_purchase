@@ -402,20 +402,24 @@ class _ProductsViewState extends State<ProductsView> {
         body: SafeArea(
           top: false,
           child: BlocBuilder<ProductsCubit, ProductsState>(
-            builder: (context, state) => switch (state) {
-              ProductsInitial() => const SizedBox.shrink(),
-              ProductsLoading() ||
-              ProductsCreating() ||
-              ProductsDeleting() =>
-                const Center(child: CircularProgressIndicator()),
-              ProductsError(:final message) =>
-                Center(child: Text(message)),
-              ProductsLoaded(:final products) when products.isEmpty =>
-                Center(child: Text(context.l10n.emptyProductsLabel)),
-              ProductsLoaded(:final products) => ListView.builder(
-                  itemCount: products.length,
+            builder: (context, state) {
+              if (state is ProductsLoading ||
+                  state is ProductsCreating ||
+                  state is ProductsDeleting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (state is ProductsError) {
+                return Center(child: Text(state.message));
+              }
+              if (state is ProductsLoaded) {
+                // empty-check primeiro (if aninhado) evita bug de ordem
+                if (state.products.isEmpty) {
+                  return Center(child: Text(context.l10n.emptyProductsLabel));
+                }
+                return ListView.builder(
+                  itemCount: state.products.length,
                   itemBuilder: (context, index) {
-                    final product = products[index];
+                    final product = state.products[index];
                     return ProductListItem(
                       key: ValueKey(product.id),
                       product: product,
@@ -423,7 +427,10 @@ class _ProductsViewState extends State<ProductsView> {
                           context.read<ProductsCubit>().delete(product.id),
                     );
                   },
-                ),
+                );
+              }
+              // ProductsInitial e estados futuros: branch padrão
+              return const SizedBox.shrink();
             },
           ),
         ),

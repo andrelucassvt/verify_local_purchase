@@ -1,3 +1,12 @@
+---
+generated_at: 2026-07-10
+source_commit: d18a88b
+source_state: dirty
+verified_at: 2026-07-10
+status: current
+related_plans: []
+---
+
 # Flow: Verificação de Compra Única
 
 > **Resumo:** Valida uma compra consumível ou não-consumível consultando a loja da plataforma atual. Retorna `true` se a transação existe e **não** foi reembolsada/revogada.

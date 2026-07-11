@@ -1,3 +1,12 @@
+---
+generated_at: 2026-07-10
+source_commit: d18a88b
+source_state: dirty
+verified_at: 2026-07-10
+status: current
+related_plans: []
+---
+
 # Flow: Inicialização e Configuração
 
 > **Resumo:** Antes de qualquer verificação, o app consumidor chama `VerifyLocalPurchase.initialize()` passando as credenciais de Apple e/ou Google. Essa config é guardada em estado estático e reutilizada por todas as chamadas de verificação subsequentes.

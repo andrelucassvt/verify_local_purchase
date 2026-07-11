@@ -344,12 +344,11 @@ class VerifyPurchaseService {
         do {
           final queryParams = <String, String>{};
           if (startTime != null) {
-            queryParams['startTime'] =
-                startTime.millisecondsSinceEpoch.toString();
+            queryParams['startTime'] = startTime.millisecondsSinceEpoch
+                .toString();
           }
           if (endTime != null) {
-            queryParams['endTime'] =
-                endTime.millisecondsSinceEpoch.toString();
+            queryParams['endTime'] = endTime.millisecondsSinceEpoch.toString();
           }
           if (pageToken != null) {
             queryParams['token'] = pageToken;
@@ -373,8 +372,7 @@ class VerifyPurchaseService {
           }
 
           final body = jsonDecode(response.body) as Map<String, dynamic>;
-          final purchases =
-              (body['voidedPurchases'] as List<dynamic>?) ?? [];
+          final purchases = (body['voidedPurchases'] as List<dynamic>?) ?? [];
 
           for (final item in purchases) {
             results.add(
@@ -385,14 +383,17 @@ class VerifyPurchaseService {
           }
 
           final nextToken =
-              (body['tokenPagination'] as Map<String, dynamic>?)?['nextPageToken']
+              (body['tokenPagination']
+                      as Map<String, dynamic>?)?['nextPageToken']
                   as String?;
           pageToken = (nextToken != null && nextToken != pageToken)
               ? nextToken
               : null;
         } while (pageToken != null);
 
-        debugPrint('✅ ${results.length} reembolso(s) encontrado(s) no Google Play');
+        debugPrint(
+          '✅ ${results.length} reembolso(s) encontrado(s) no Google Play',
+        );
         return results;
       } finally {
         authClient.close();
@@ -453,3 +454,8 @@ class VerifyPurchaseService {
     }
   }
 }
+
+///
+// The following plugins do not support Swift Package Manager for ios:
+//   - verify_local_purchase
+// This will become an error in a future version of Flutter. Please contact the plugin maintainers to request Swift Package Manager adoption.

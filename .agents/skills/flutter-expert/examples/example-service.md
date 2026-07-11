@@ -197,11 +197,15 @@ class GeneratorCubit extends Cubit<GeneratorState> {
 
 ```dart
 BlocBuilder<GeneratorCubit, GeneratorState>(
-  builder: (context, state) => switch (state) {
-    GeneratorInitial() => const SizedBox.shrink(),
-    GeneratorLoading() => const Center(child: CircularProgressIndicator()),
-    GeneratorSuccess(:final result) => Text(result),
-    GeneratorPremiumRequired() => Center(
+  builder: (context, state) {
+    if (state is GeneratorLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (state is GeneratorSuccess) {
+      return Text(state.result);
+    }
+    if (state is GeneratorPremiumRequired) {
+      return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -212,10 +216,15 @@ BlocBuilder<GeneratorCubit, GeneratorState>(
             ),
           ],
         ),
-      ),
-    GeneratorAccessInfo(:final remaining) =>
-      Text(context.l10n.remainingFreeUses(remaining)),
-    GeneratorError(:final message) => Text(message),
+      );
+    }
+    if (state is GeneratorAccessInfo) {
+      return Text(context.l10n.remainingFreeUses(state.remaining));
+    }
+    if (state is GeneratorError) {
+      return Text(state.message);
+    }
+    return const SizedBox.shrink();
   },
 )
 ```

@@ -87,14 +87,10 @@ class _CounterViewState extends State<CounterView> {
         body: SafeArea(
           top: false,
           child: BlocBuilder<CounterCubit, CounterState>(
-            builder: (context, state) => switch (state) {
-              CounterInitial() => Center(
-                  child: ElevatedButton(
-                    onPressed: () => _cubit.increment(0),
-                    child: Text(context.l10n.startButton),
-                  ),
-                ),
-              CounterLoaded(:final count) => Center(
+            builder: (context, state) {
+              if (state is CounterLoaded) {
+                final count = state.count;
+                return Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -116,7 +112,15 @@ class _CounterViewState extends State<CounterView> {
                       ),
                     ],
                   ),
+                );
+              }
+              // CounterInitial e estados futuros: branch padrão
+              return Center(
+                child: ElevatedButton(
+                  onPressed: () => _cubit.increment(0),
+                  child: Text(context.l10n.startButton),
                 ),
+              );
             },
           ),
         ),

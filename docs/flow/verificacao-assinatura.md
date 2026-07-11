@@ -1,3 +1,12 @@
+---
+generated_at: 2026-07-10
+source_commit: d18a88b
+source_state: dirty
+verified_at: 2026-07-10
+status: current
+related_plans: []
+---
+
 # Flow: Verificação de Assinatura
 
 > **Resumo:** Verifica se uma assinatura está **ativa** consultando a loja da plataforma atual. Retorna `true` quando o status indica assinatura vigente.
