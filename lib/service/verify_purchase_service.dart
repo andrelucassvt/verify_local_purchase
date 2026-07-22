@@ -454,8 +454,3 @@ class VerifyPurchaseService {
     }
   }
 }
-
-///
-// The following plugins do not support Swift Package Manager for ios:
-//   - verify_local_purchase
-// This will become an error in a future version of Flutter. Please contact the plugin maintainers to request Swift Package Manager adoption.
