@@ -26,15 +26,24 @@ import 'package:flutter/foundation.dart';
 @immutable
 sealed class CounterState {
   const CounterState();
+
+  @override
+  String toString();
 }
 
 class CounterInitial extends CounterState {
   const CounterInitial();
+
+  @override
+  String toString() => 'CounterInitial';
 }
 
 class CounterLoaded extends CounterState {
   const CounterLoaded({required this.count});
   final int count;
+
+  @override
+  String toString() => 'CounterLoaded(count: $count)';
 }
 ```
 
@@ -164,7 +173,7 @@ inject.registerFactory<CounterCubit>(() => CounterCubit());
 
 ## Checklist
 
-- [x] State: `sealed class` + `@immutable` + `const`
+- [x] State: `sealed class` + `@immutable` + `const` + `toString()` legível
 - [x] Cubit: herda `Cubit<CounterState>`, estado inicial no construtor
 - [x] View: `StatefulWidget`, `AppInjector`, `BlocProvider.value`, `SafeArea`, `dispose()`
 - [x] Rota: constante em `app_routes.dart` + `GoRoute` em `app_router.dart`

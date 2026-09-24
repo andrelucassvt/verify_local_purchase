@@ -1,0 +1,19 @@
+# Execução de plano multi-parte
+
+Use esta referência quando o plano for uma pasta com `00-indice.md` e partes numeradas. Leia o índice para absorver objetivo, Design de Origem, ordem, dependências e a coluna `Delegável` da parte selecionada; depois leia por completo apenas a primeira parte pendente cujas dependências estejam concluídas. Não carregue partes futuras no contexto.
+
+Antes de iniciar a parte selecionada, se ela estiver marcada `sim` na coluna `Delegável` e o ambiente oferecer subagente, delegue a parte inteira. O subagente recebe os caminhos do arquivo da parte e do índice, executa todos os passos, marca os checkboxes e roda as verificações; o retorno exigido são as evidências, não apenas a afirmação de conclusão. Se estiver marcada `não` ou não houver subagente, execute normalmente, passo a passo. Delegação é otimização, nunca requisito.
+
+Ao delegar, a thread principal fica magra: lê só o índice, o arquivo da parte e as evidências devolvidas. Não abre os arquivos de código da parte nem repete as verificações — confere a evidência contra o que a parte exige. Use um subagente novo, em contexto limpo, por parte; nunca um que herde o contexto da thread, pois isso anula o ganho de contexto que justifica a delegação.
+
+Confira as evidências retornadas contra as verificações da parte antes de marcar seu status no índice. Checkbox marcado sem evidência confirmada não vale. Ao conferir, cada arquivo da tabela Arquitetura/Escopo da parte precisa aparecer no diff — arquivo listado e não tocado é pendência, por mais limpo que o resto esteja. Só então marque a parte como concluída no `00-indice.md` e execute o checkpoint final: commit e resumo curto do que ficou pronto.
+
+## Contrato de retorno do subagente
+
+O subagente escreve as evidências no próprio arquivo da parte, sob `## Evidências` (comando, saída resumida, commit), e responde em até 15 linhas com um destes status: `CONCLUÍDA`, `CONCLUÍDA_COM_RESSALVAS` (trabalho feito, dúvida registrada), `BLOQUEADA` (o que travou, o que tentou), `FALTA_CONTEXTO` (o que precisa). Ele não despacha subagentes — nem ajudante, nem revisor; a revisão vem da thread. Quando a plataforma permitir escolher o modelo do subagente, declare-o explicitamente conforme o nível da parte (`mecânico | padrão` no índice); modelo omitido herda o da sessão. Diante de `BLOQUEADA`: dê contexto e redespache; se for raciocínio, modelo mais capaz; se for tamanho, divida a parte; se for o plano, registre a Decisão e redespache com ela.
+
+Decisões tomadas durante partes delegadas vivem no `00-indice.md`, sob `## Decisões durante a execução`, ao lado do Design de Origem — não em cada parte.
+
+Não pergunte se deve continuar. Após o checkpoint, siga para a próxima parte pendente com dependências satisfeitas, repetindo leitura, execução e verificação até a última. Só pare por bloqueio real: verificação sem solução no escopo, dependência externa ausente ou correção que mudaria o Design de Origem.
+
+Se o usuário pedir explicitamente apenas uma parte (por exemplo, "execute a parte 2"), conclua essa parte e pare.

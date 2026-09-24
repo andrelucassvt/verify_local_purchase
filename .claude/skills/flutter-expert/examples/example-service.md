@@ -69,11 +69,31 @@ class SplashCubit extends Cubit<SplashState> {
 
 ```dart
 @immutable
-sealed class SplashState { const SplashState(); }
+sealed class SplashState {
+  const SplashState();
 
-class SplashInitial extends SplashState { const SplashInitial(); }
-class SplashNavigateToHome extends SplashState { const SplashNavigateToHome(); }
-class SplashNavigateToOnboarding extends SplashState { const SplashNavigateToOnboarding(); }
+  @override
+  String toString();
+}
+
+class SplashInitial extends SplashState {
+  const SplashInitial();
+
+  @override
+  String toString() => 'SplashInitial';
+}
+class SplashNavigateToHome extends SplashState {
+  const SplashNavigateToHome();
+
+  @override
+  String toString() => 'SplashNavigateToHome';
+}
+class SplashNavigateToOnboarding extends SplashState {
+  const SplashNavigateToOnboarding();
+
+  @override
+  String toString() => 'SplashNavigateToOnboarding';
+}
 ```
 
 ### DI
@@ -144,24 +164,57 @@ class FeatureGateServiceImpl implements FeatureGateService {
 
 ```dart
 @immutable
-sealed class GeneratorState { const GeneratorState(); }
+sealed class GeneratorState {
+  const GeneratorState();
 
-class GeneratorInitial extends GeneratorState { const GeneratorInitial(); }
-class GeneratorLoading extends GeneratorState { const GeneratorLoading(); }
+  @override
+  String toString();
+}
+
+class GeneratorInitial extends GeneratorState {
+  const GeneratorInitial();
+
+  @override
+  String toString() => 'GeneratorInitial';
+}
+class GeneratorLoading extends GeneratorState {
+  const GeneratorLoading();
+
+  @override
+  String toString() => 'GeneratorLoading';
+}
 class GeneratorSuccess extends GeneratorState {
   const GeneratorSuccess({required this.result});
   final String result;
+
+  @override
+  String toString() => 'GeneratorSuccess(result: $result)';
 }
-class GeneratorPremiumRequired extends GeneratorState { const GeneratorPremiumRequired(); }
+class GeneratorPremiumRequired extends GeneratorState {
+  const GeneratorPremiumRequired();
+
+  @override
+  String toString() => 'GeneratorPremiumRequired';
+}
 class GeneratorAccessInfo extends GeneratorState {
   const GeneratorAccessInfo({required this.canUse, required this.remaining});
   final bool canUse;
   final int remaining;
+
+  @override
+  String toString() =>
+      'GeneratorAccessInfo(canUse: $canUse, remaining: $remaining)';
 }
 class GeneratorError extends GeneratorState {
-  const GeneratorError(this.message);
-  final String message;
+  const GeneratorError(this.kind, {this.error});
+  final GeneratorErrorKind kind;
+  final Object? error;
+
+  @override
+  String toString() => 'GeneratorError(kind: $kind, error: $error)';
 }
+
+enum GeneratorErrorKind { offline, quotaExceeded, generic }
 ```
 
 ### Cubit com gate check
@@ -222,7 +275,11 @@ BlocBuilder<GeneratorCubit, GeneratorState>(
       return Text(context.l10n.remainingFreeUses(state.remaining));
     }
     if (state is GeneratorError) {
-      return Text(state.message);
+      return Text(switch (state.kind) {
+        GeneratorErrorKind.offline => context.l10n.errorOffline,
+        GeneratorErrorKind.quotaExceeded => context.l10n.errorQuotaExceeded,
+        GeneratorErrorKind.generic => context.l10n.errorGeneric,
+      });
     }
     return const SizedBox.shrink();
   },

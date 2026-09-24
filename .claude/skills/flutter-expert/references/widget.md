@@ -7,6 +7,8 @@
 - **Quando usar StatefulWidget**: widget tem controllers, timers ou animações internas.
 - **Quando definir parâmetros**: prefira passar a Entity completa em vez de campos individuais.
 - **Quando adicionar texto visível**: SEMPRE use `context.l10n` — nunca string hardcoded.
+- **Quando o widget for extraído**: em Flutter 3.47+, crie um `<nome>_preview.dart` ao lado com `@Preview`;
+  cubra pelo menos o estado padrão e os estados vazio/erro quando existirem. Leia `widget-preview.md`.
 - **Quando tiver controllers/timers**: SEMPRE faça `dispose()` deles.
 
 ---
@@ -386,7 +388,8 @@ class QuantityStepper extends StatefulWidget { /* tem estado/identidade próprio
 - [ ] Entity completa como parâmetro (não campos individuais)
 - [ ] Textos via `context.l10n.<chave>`
 - [ ] `dispose()` implementado para controllers/timers
-- [ ] Localização: `presentation/<feature>/widgets/` ou `common/widgets/`
+- [ ] Localização: `presentation/<feature>/content/`, `presentation/<feature>/widgets/` ou `common/widgets/`
+- [ ] Preview em arquivo irmão quando o projeto usa Flutter 3.47+
 
 ---
 
