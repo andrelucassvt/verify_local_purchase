@@ -46,3 +46,11 @@ secrets.dart
 .packages
 pubspec.lock
 local.properties
+
+# AI instructions and internal docs
+docs/
+.claude/
+.agents/
+AGENTS.md
+CLAUDE.md
+sync-instructions.sh

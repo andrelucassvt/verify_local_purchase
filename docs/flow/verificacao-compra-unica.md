@@ -1,73 +1,75 @@
 ---
 generated_at: 2026-07-10
-source_commit: d18a88b
+source_commit: 894d27a
 source_state: dirty
-verified_at: 2026-07-10
+verified_at: 2026-09-24
 status: current
 related_plans: []
 ---
 
 # Flow: Verificação de Compra Única
 
-> **Resumo:** Valida uma compra consumível ou não-consumível consultando a loja da plataforma atual. Retorna `true` se a transação existe e **não** foi reembolsada/revogada.
+> **Resumo:** Valida uma compra consumível/não-consumível procurando o `transactionId` no histórico paginado da App Store (com fallback de sandbox) ou lendo `purchaseState` no `productsv2` do Google; devolve `VerificationResult` com `purchased`, `revoked`, `pending` ou `notFound`.
 
 ## Visão Geral
 
-`verifyPurchase(token)` escolhe a loja pela plataforma de execução (`Platform.isIOS` → App Store; caso contrário → Google Play) e delega para o método específico. Os métodos `*WithAppStore` e `*WithGooglePlay` também podem ser chamados diretamente quando o app já sabe a loja.
+O app chama `VerifyLocalPurchase.verifyPurchase(token)` ou `verifyPurchaseDetails(purchase)` (extrai o token com `getOneTimePurchaseToken`). A fachada estática delega ao `VerifyPurchaseService`, que escolhe a loja por `Platform.isIOS || Platform.isMacOS`. Os métodos `verifyPurchaseWithAppStore` / `verifyPurchaseWithGooglePlay` podem ser chamados diretamente.
+
+Na Apple não há endpoint de transação única no SDK 1.2.10, então o service pagina `getTransactionHistory` até encontrar o ID. No Google, uma chamada ao `productsv2` basta. Em ambos, a decisão fica em `StoreResponseParser`.
 
 ```
 verifyPurchase(token)
-   │  Platform.isIOS ?
-   ├── true  ─► verifyPurchaseWithAppStore(transactionId)   ─► App Store Server API (histórico)
-   └── false ─► verifyPurchaseWithGooglePlay(purchaseToken) ─► Google Play Developer API (productsv2)
+   ├── Apple ─► verifyPurchaseWithAppStore ─► _callAppStore ─► getTransactionHistory (loop)
+   │                                              └─► StoreResponseParser.appleTransaction
+   └── Google ─► verifyPurchaseWithGooglePlay ─► _googleGet(productsv2)
+                                                  └─► StoreResponseParser.googleProduct
 ```
 
 ## Passo a Passo
 
-### Caminho App Store (`verifyPurchaseWithAppStore`)
+1. **Fachada** — `lib/verify_local_purchase.dart` → `VerifyLocalPurchase.verifyPurchase` / `verifyPurchaseDetails`
+   Sem `initialize` → `VerifyPurchaseException(notInitialized)`.
+2. **Roteamento** — `lib/service/verify_purchase_service.dart` → `verifyPurchase`.
 
-1. Obtém a config via `_getConfig`; se `appleConfig` for `null`, lança `Exception('Apple configuration not provided')`.
-2. Monta `AppStoreEnvironment.sandbox(...)` ou `.live(...)` conforme `useSandbox`.
-3. Cria `AppStoreServerHttpClient` + `AppStoreServerAPI`.
-4. Pagina o histórico com `api.getTransactionHistory(transactionId, revision:)` em loop enquanto `hasMore`.
-5. Para cada `signedTransaction`, decodifica via `JWSTransactionDecodedPayload.fromEncodedPayload`.
-6. Se `transactionId` ou `originalTransactionId` baterem:
-   - `revocationDate == null` → retorna `true` (compra válida).
-   - caso contrário → retorna `false` (reembolsada/revogada).
-7. Se nada bater em todo o histórico → retorna `false`.
+### Caminho App Store
 
-### Caminho Google Play (`verifyPurchaseWithGooglePlay`)
+3. `verifyPurchaseWithAppStore` → `_requireToken` (vazio → `invalidToken`).
+4. `_callAppStore` percorre os ambientes de `AppleConfig.environment` (default: produção e depois sandbox); códigos `4040001/4040005/4040010` passam ao próximo ambiente ou viram `notFound` no último.
+5. Dentro do ambiente, loop `getTransactionHistory(transactionId, revision:)` enquanto `hasMore`; cada `signedTransaction` é decodificado com `JWSTransactionDecodedPayload.fromEncodedPayload`.
+6. Ao achar `transactionId` **ou** `originalTransactionId` igual ao token → `StoreResponseParser.appleTransaction(tx, environment: historyResponse.environment)`.
+7. Histórico esgotado sem match → `VerificationResult.notFound(StorePlatform.apple)` (não dispara fallback: a Apple respondeu com sucesso).
 
-1. Obtém a config; se `googlePlayConfig` for `null`, lança `Exception('Google Play configuration not provided')`.
-2. `jsonDecode` do `serviceAccountJson` → `ServiceAccountCredentials.fromJson`.
-3. Autentica via `clientViaServiceAccount` com o escopo `androidpublisher`.
-4. `GET .../applications/{packageName}/purchases/productsv2/tokens/{purchaseToken}`.
-5. Se HTTP 200 → lê `purchaseStateContext.purchaseState`; retorna `true` somente se `== 'PURCHASED'`.
-6. Se status ≠ 200 → lança `Exception` com status e corpo.
-7. `finally` sempre fecha o `authClient`.
+### Caminho Google Play
+
+3. `verifyPurchaseWithGooglePlay` → `_requireToken`, `_googleConfig` (`missingConfig`).
+4. `_googleGet` com o client cacheado → `GET /androidpublisher/v3/applications/{packageName}/purchases/productsv2/tokens/{token}`.
+   - 404/410 → `notFound`; 401/403 → `unauthorized`; outro ≠ 200 → `apiError`; rede → `networkError`.
+5. `StoreResponseParser.googleProduct(json)` lê `purchaseStateContext.purchaseState` e o `productId` do primeiro `productLineItem`.
 
 ## Arquivos Envolvidos
 
-| Arquivo | Papel |
-|---------|-------|
-| `lib/verify_local_purchase.dart` | `verifyPurchase`, `verifyPurchaseWithAppStore`, `verifyPurchaseWithGooglePlay` (fachada) |
-| `lib/service/verify_purchase_service.dart` | Implementação dos três métodos |
-| `lib/models/verify_purchase_config.dart` | Credenciais usadas em cada loja |
-| `lib/utils/purchase_token_utils.dart` | `getOneTimePurchaseToken` produz o token de entrada |
+| Camada | Arquivo | Responsabilidade |
+|--------|---------|------------------|
+| API pública | `lib/verify_local_purchase.dart` | `verifyPurchase`, `verifyPurchaseDetails`, `verifyPurchaseWithAppStore`, `verifyPurchaseWithGooglePlay` |
+| Service | `lib/service/verify_purchase_service.dart` | Paginação do histórico, fallback, chamada HTTP Google, erros |
+| Regras | `lib/service/store_response_parser.dart` | `appleTransaction`, `googleProduct` |
+| Models | `lib/models/verification_result.dart` | Resultado e estados |
+| Testes | `test/store_response_parser_test.dart` | `PURCHASED`/`PENDING`/`CANCELLED`, revogação Apple |
+| Testes | `test/verify_purchase_service_test.dart` | 404/410, 401, 500, rede, JSON inválido, token vazio |
 
-## Regras de Negócio
+## Regras de Negócio Relevantes
 
-- **iOS**: o token é o `transactionId`. Uma compra é válida se encontrada no histórico **e** sem `revocationDate`.
-- **Android**: o token é o `purchaseToken`. Considerada válida apenas em `purchaseState == 'PURCHASED'`.
-- Erros de API Apple viram `Exception` com `errorCode`/`errorMessage` (`ApiException`).
+- **Apple**: válida se encontrada no histórico **e** sem `revocationDate`; revogada → `state: revoked`.
+- **Google**: válida só em `PURCHASED`; `PENDING` → `pending` (inválida); `CANCELLED`/`CANCELED` → `revoked`.
+- **`isSandbox`**: Apple pelo `environment` do histórico; Google pela presença de `testPurchaseContext`.
+- **Token desconhecido não é erro** — retorna `notFound` nas duas lojas.
 
 ## Dependências Externas
 
-- `app_store_server_sdk` — cliente e decodificação JWS da App Store.
-- `googleapis_auth` — autenticação Service Account para a Google Play Developer API.
-- Endpoint Google: `https://androidpublisher.googleapis.com/.../purchases/productsv2/tokens/{token}`.
+- `app_store_server_sdk` 1.2.10 — `getTransactionHistory`, decodificação JWS.
+- `googleapis_auth` + `http` — endpoint `productsv2`.
 
 ## Observações
 
-- A verificação Apple percorre **todo** o histórico paginado até encontrar o ID, o que pode gerar múltiplas chamadas de rede.
-- Logs em português via `debugPrint` (🔍/✅/❌).
+- A busca Apple pode fazer várias chamadas (20 transações por página). O SDK 1.2.10 não tem `getTransactionInfo`.
+- Consumíveis já finalizados podem não aparecer no histórico da Apple, dependendo da configuração do app — nesse caso o resultado é `notFound`.

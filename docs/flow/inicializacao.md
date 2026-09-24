@@ -1,59 +1,55 @@
 ---
 generated_at: 2026-07-10
-source_commit: d18a88b
+source_commit: 894d27a
 source_state: dirty
-verified_at: 2026-07-10
+verified_at: 2026-09-24
 status: current
 related_plans: []
 ---
 
 # Flow: Inicialização e Configuração
 
-> **Resumo:** Antes de qualquer verificação, o app consumidor chama `VerifyLocalPurchase.initialize()` passando as credenciais de Apple e/ou Google. Essa config é guardada em estado estático e reutilizada por todas as chamadas de verificação subsequentes.
+> **Resumo:** `VerifyLocalPurchase.initialize()` recebe as credenciais Apple/Google, a escolha de ambiente Apple e a flag de log, descarta o service anterior (fechando os clients HTTP em cache) e cria uma nova instância de `VerifyPurchaseService` guardada na fachada estática.
 
 ## Visão Geral
 
-A inicialização é o ponto de entrada obrigatório do pacote. Ela monta um `VerifyPurchaseConfig` (contendo `AppleConfig` e/ou `GooglePlayConfig`) e o armazena em um campo estático do `VerifyPurchaseService`. Qualquer verificação chamada sem inicialização prévia lança uma `Exception`.
+A inicialização é o ponto de entrada obrigatório. A fachada `VerifyLocalPurchase` (classe `abstract final`, só estática) monta um `VerifyPurchaseConfig` e cria o `VerifyPurchaseService` que guarda essa config como campo de instância. Nenhuma chamada de rede acontece aqui: os clients são criados na primeira verificação e reusados depois.
 
 ```
 main() do app
-   │  VerifyLocalPurchase.initialize(appleConfig:, googlePlayConfig:)
+   │  VerifyLocalPurchase.initialize(appleConfig:, googlePlayConfig:, enableLogging:)
    ▼
-VerifyLocalPurchase.initialize  (fachada)
-   │  delega
+VerifyLocalPurchase._service?.dispose()   (fecha clients da config anterior)
    ▼
-VerifyPurchaseService.initialize
-   │  cria
-   ▼
-VerifyPurchaseConfig { appleConfig?, googlePlayConfig? }  ──► VerifyPurchaseService._config (estático)
+VerifyLocalPurchase._service = VerifyPurchaseService(VerifyPurchaseConfig(...))
 ```
 
 ## Passo a Passo
 
-1. O app consumidor chama `VerifyLocalPurchase.initialize(appleConfig: ..., googlePlayConfig: ...)`, idealmente no `main()` antes do `runApp()`.
-2. A fachada delega para `VerifyPurchaseService.initialize(appleConfig:, googlePlayConfig:)`.
-3. O service instancia `VerifyPurchaseConfig(appleConfig: ..., googlePlayConfig: ...)` e atribui ao campo estático `_config`.
-4. A partir daí, o getter privado `_getConfig` retorna essa config; se `_config` for `null`, lança `Exception('VerifyPurchaseService not initialized...')`.
+1. **Fachada** — `lib/verify_local_purchase.dart` → `VerifyLocalPurchase.initialize`
+   Chama `dispose()` do service anterior, se houver, e cria um novo com `VerifyPurchaseConfig(appleConfig, googlePlayConfig, enableLogging)`.
+2. **Service** — `lib/service/verify_purchase_service.dart` → construtor `VerifyPurchaseService`
+   Guarda a config e resolve os defaults: `AppStoreServerAPI` real, `DateTime.now`, `Platform.isIOS || Platform.isMacOS`. Em testes esses pontos são injetados (`googleClient`, `appStoreApiFactory`, `now`, `isApplePlatform`).
+3. **Uso posterior** — cada método da fachada passa por `_requireService`, que lança `VerifyPurchaseException(notInitialized)` se não houver service.
+4. **Encerramento** — `VerifyLocalPurchase.dispose()` fecha o `AutoRefreshingAuthClient` do Google e os `AppStoreServerHttpClient` criados, e zera o service.
 
 ## Arquivos Envolvidos
 
-| Arquivo | Papel |
-|---------|-------|
-| `lib/verify_local_purchase.dart` | Fachada pública `VerifyLocalPurchase.initialize` |
-| `lib/service/verify_purchase_service.dart` | `VerifyPurchaseService.initialize`, `_config`, `_getConfig` |
-| `lib/models/verify_purchase_config.dart` | `VerifyPurchaseConfig`, `AppleConfig`, `GooglePlayConfig` |
+| Camada | Arquivo | Responsabilidade |
+|--------|---------|------------------|
+| API pública | `lib/verify_local_purchase.dart` | `initialize`, `dispose`, `_requireService` |
+| Service | `lib/service/verify_purchase_service.dart` | Construtor, `dispose`, caches `_googleClientFuture` / `_appStoreApis` |
+| Config | `lib/models/verify_purchase_config.dart` | `VerifyPurchaseConfig`, `AppleConfig`, `AppleEnvironment`, `GooglePlayConfig` |
+| Testes | `test/verify_purchase_service_test.dart` | `notInitialized`, `missingConfig`, credenciais inválidas |
 
-## Regras de Negócio
+## Regras de Negócio Relevantes
 
-- `appleConfig` e `googlePlayConfig` são ambos opcionais, mas a verificação na loja correspondente falha (lança `Exception`) se a config daquela loja não tiver sido fornecida.
-- `AppleConfig.useSandbox` controla se a App Store usa ambiente sandbox (`false` por padrão = produção).
-- A config é **global e estática**: uma nova chamada a `initialize()` sobrescreve a anterior.
-
-## Dependências Externas
-
-- Nenhuma chamada de rede nesta etapa; apenas armazenamento de credenciais em memória.
+- **Config por loja é opcional** — mas chamar a loja sem config lança `missingConfig` (`Apple configuration not provided` / `Google Play configuration not provided`).
+- **`AppleConfig.environment` default = `productionWithSandboxFallback`** — `verify_purchase_config.dart`.
+- **Logs desligados por padrão** (`enableLogging: false`); quando ligados, tokens passam por `VerifyPurchaseService.mask`.
+- **Uma config por processo** — nova `initialize()` substitui (e fecha) a anterior.
 
 ## Observações
 
-- `GooglePlayConfig.serviceAccountJson` é a string JSON completa das credenciais do Service Account; só é decodificada (`jsonDecode`) no momento da verificação.
-- Por ser estado estático, não há suporte a múltiplas configurações simultâneas no mesmo processo.
+- `serviceAccountJson` só é decodificado na primeira chamada ao Google; JSON inválido aparece como `invalidCredentials` nesse momento, não no `initialize`.
+- Uma falha ao autenticar no Google não fica em cache: a próxima chamada tenta de novo.

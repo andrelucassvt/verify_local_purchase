@@ -9,7 +9,8 @@ A Flutter package for verifying in-app purchases and subscriptions **locally on 
 ✅ **Local verification** - Verify purchases directly from your Flutter app  
 🍎 **Apple App Store** - Support for iOS and macOS in-app purchases and subscriptions  
 🤖 **Google Play Store** - Support for Android in-app purchases and subscriptions  
-🔒 **Secure** - Uses official Apple and Google APIs for verification  
+🔒 **Official APIs** - App Store Server API and Google Play Developer API  
+📋 **Rich results** - State, expiration, auto-renew and sandbox flag, not just a boolean  
 ⚡ **Easy to use** - Simple initialization and verification methods  
 
 ## 🔑 Getting Credentials
@@ -66,9 +67,10 @@ Add this to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  verify_local_purchase: ^1.0.2
-  in_app_purchase: ^3.2.0  # For handling purchases
+  verify_local_purchase: ^2.0.0
 ```
+
+`in_app_purchase` is re-exported by this package — you don't need to add it separately.
 
 Run:
 
@@ -76,108 +78,132 @@ Run:
 flutter pub get
 ```
 
+> Upgrading from 1.x? See [Migrating from 1.x](#migrating-from-1x).
+
 ## Quick Reference
 
 **Initialization:**
 
 ```dart
-void main() async {
+void main() {
   VerifyLocalPurchase.initialize(
-    VerifyPurchaseConfig(
-      appleConfig: AppleConfig(
-        bundleId: 'com.example.app',
-        issuerId: 'your-issuer-id',
-        keyId: 'your-key-id',
-        privateKey: '-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----',
-        useSandbox: true,
-      ),
-      googlePlayConfig: GooglePlayConfig(
-        packageName: 'com.example.app',
-        serviceAccountJson: '{ ... }',
-      ),
+    appleConfig: AppleConfig(
+      bundleId: 'com.example.app',
+      issuerId: 'your-issuer-id',
+      keyId: 'your-key-id',
+      privateKey: '-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----',
+      // Default: production, retrying in sandbox when the transaction is not
+      // found there (App Review and TestFlight use sandbox).
+      environment: AppleEnvironment.productionWithSandboxFallback,
     ),
+    googlePlayConfig: GooglePlayConfig(
+      packageName: 'com.example.app',
+      serviceAccountJson: '{ ... }',
+    ),
+    enableLogging: kDebugMode, // masked tokens; off by default
   );
-  
+
   runApp(const MyApp());
 }
 ```
 
-### 📱 Getting the Correct Token
+### Verify straight from `PurchaseDetails`
 
-Before verifying, you need to extract the right token from `PurchaseDetails` depending on the platform and purchase type:
+The easiest path — the package extracts the right token for each platform:
 
 ```dart
-import 'dart:convert';
-import 'dart:io';
+// One-time purchase (consumable or non-consumable)
+final result = await VerifyLocalPurchase.verifyPurchaseDetails(purchase);
 
-/// Returns the token for a ONE-TIME purchase (consumable or non-consumable)
-String getOneTimePurchaseToken(PurchaseDetails purchase) {
-  if (Platform.isIOS || Platform.isMacOS) {
-    // iOS/macOS: use the transactionId (purchaseID)
-    return purchase.purchaseID ?? '';
-  } else {
-    // Android: use serverVerificationData (contains the purchaseToken)
-    return purchase.verificationData.serverVerificationData;
-  }
+// Subscription
+final result = await VerifyLocalPurchase.verifySubscriptionDetails(purchase);
+
+if (result.isValid) {
+  // ✅ Grant access
+} else {
+  // ❌ result.state tells why: expired, revoked, pending, notFound...
 }
+```
 
-/// Returns the token for a SUBSCRIPTION
-String getSubscriptionToken(PurchaseDetails purchase) {
-  if (Platform.isIOS || Platform.isMacOS) {
-    // iOS/macOS: parse localVerificationData JSON to get originalTransactionId
-    // The originalTransactionId is stable across renewals and restores
-    final data = jsonDecode(purchase.verificationData.localVerificationData);
-    return data['originalTransactionId'] as String;
-  } else {
-    // Android: use serverVerificationData (contains the subscriptionToken)
-    return purchase.verificationData.serverVerificationData;
+### Verify with a token
+
+If you store tokens yourself, use `getOneTimePurchaseToken` / `getSubscriptionToken` and pass the string:
+
+```dart
+final token = getSubscriptionToken(purchase);
+final result = await VerifyLocalPurchase.verifySubscription(token);
+```
+
+| Platform | One-time purchase | Subscription |
+|----------|-------------------|--------------|
+| iOS/macOS | `purchase.purchaseID` (transaction ID) | `originalTransactionId` from `localVerificationData` |
+| Android | `serverVerificationData` (purchase token) | `serverVerificationData` (subscription token) |
+
+Both helpers throw `VerifyPurchaseException` (`invalidToken`) if the token is missing.
+
+### `VerificationResult`
+
+| Field | Description |
+|-------|-------------|
+| `isValid` | Whether to grant access **now** |
+| `state` | `purchased`, `active`, `canceled`, `gracePeriod`, `billingRetry`, `onHold`, `paused`, `pending`, `expired`, `revoked`, `notFound`, `unknown` |
+| `platform` | `StorePlatform.apple` / `StorePlatform.google` |
+| `productId` | Product returned by the store |
+| `expiresAt` | End of the current subscription period (use it to cache the result) |
+| `willAutoRenew` | Whether the subscription renews automatically |
+| `isSandbox` | Answer came from sandbox / a test purchase |
+| `raw` | Decoded store payload |
+
+**When is a subscription valid?**
+
+| Store | Valid (`isValid: true`) | Not valid |
+|-------|------------------------|-----------|
+| Apple | Active (1), Billing Grace Period (4) — canceled auto-renew still counts until expiration | Expired (2), Billing Retry (3), Revoked (5) |
+| Google | `ACTIVE`, `CANCELED`, `IN_GRACE_PERIOD` **and** `expiryTime` in the future | `PENDING`, `ON_HOLD`, `PAUSED`, `EXPIRED` |
+
+### Errors
+
+Every method throws `VerifyPurchaseException` with a `code`:
+
+```dart
+try {
+  final result = await VerifyLocalPurchase.verifyPurchaseDetails(purchase);
+} on VerifyPurchaseException catch (e) {
+  switch (e.code) {
+    case VerifyPurchaseErrorCode.networkError:
+      // offline — retry later, don't revoke access
+    case VerifyPurchaseErrorCode.unauthorized:
+    case VerifyPurchaseErrorCode.invalidCredentials:
+      // configuration problem
+    default:
+      // e.statusCode / e.storeErrorCode have details
   }
 }
 ```
 
-### Verify a One-Time Purchase
+An unknown token/transaction is **not** an error: it returns `VerificationResult` with `state: notFound`.
+
+### Refunds
 
 ```dart
-final verifyPurchase = VerifyLocalPurchase();
+// Apple: refunds for one customer
+final appleRefunds = await VerifyLocalPurchase.getRefundsWithAppStore(originalTransactionId);
 
-// Use getOneTimePurchaseToken() above to get the correct token per platform
-final isValid = await verifyPurchase.verifyPurchase(token);
-
-if (isValid) {
-  // ✅ Grant access to purchased content
-} else {
-  // ❌ Purchase is invalid or refunded
-}
-```
-
-### Verify a Subscription
-
-```dart
-final verifyPurchase = VerifyLocalPurchase();
-
-// Use getSubscriptionToken() above to get the correct token per platform
-final isActive = await verifyPurchase.verifySubscription(token);
-
-if (isActive) {
-  // ✅ Grant access to premium features
-} else {
-  // ❌ Subscription is expired or canceled
-}
+// Google: all voided purchases of the app (last 30 days by default, paginated)
+final googleRefunds = await VerifyLocalPurchase.getRefundsWithGooglePlay(
+  startTime: DateTime.now().subtract(const Duration(days: 7)),
+);
 ```
 
 ## Complete Example
 
-Here's a complete working example of how to use this package with the `in_app_purchase` plugin:
-
 ```dart
 import 'dart:async';
-import 'dart:io';
+
 import 'package:flutter/material.dart';
-import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:verify_local_purchase/verify_local_purchase.dart';
 
 void main() {
-  // 🔑 Initialize with your credentials
   VerifyLocalPurchase.initialize(
     appleConfig: AppleConfig(
       bundleId: 'com.example.app',
@@ -186,45 +212,31 @@ void main() {
       privateKey: '''-----BEGIN PRIVATE KEY-----
 YOUR_PRIVATE_KEY_CONTENT_HERE
 -----END PRIVATE KEY-----''',
-      useSandbox: true,
     ),
     googlePlayConfig: GooglePlayConfig(
       packageName: 'com.example.app',
-      serviceAccountJson: '''
-{
-  "type": "service_account",
-  "project_id": "your-project",
-  "private_key_id": "xxxxx",
-  "private_key": "-----BEGIN PRIVATE KEY-----\\nYOUR_KEY\\n-----END PRIVATE KEY-----\\n",
-  "client_email": "your-service-account@your-project.iam.gserviceaccount.com",
-  "client_id": "xxxxx"
-}''',
+      serviceAccountJson: '''{ "type": "service_account", ... }''',
     ),
   );
 
-  runApp(const MyApp());
+  runApp(const MaterialApp(home: StorePage()));
 }
 
-class MyApp extends StatefulWidget {
-  const MyApp({super.key});
+class StorePage extends StatefulWidget {
+  const StorePage({super.key});
 
   @override
-  State<MyApp> createState() => _MyAppState();
+  State<StorePage> createState() => _StorePageState();
 }
 
-class _MyAppState extends State<MyApp> {
-  final InAppPurchase _inAppPurchase = InAppPurchase.instance;
-  final VerifyLocalPurchase _verifyPurchase = VerifyLocalPurchase();
-  
+class _StorePageState extends State<StorePage> {
+  final _inAppPurchase = InAppPurchase.instance;
   StreamSubscription<List<PurchaseDetails>>? _subscription;
-  List<ProductDetails> _products = [];
 
   @override
   void initState() {
     super.initState();
-    // Listen to purchase updates
     _subscription = _inAppPurchase.purchaseStream.listen(_onPurchaseUpdate);
-    _loadProducts();
   }
 
   @override
@@ -233,101 +245,52 @@ class _MyAppState extends State<MyApp> {
     super.dispose();
   }
 
-  Future<void> _loadProducts() async {
-    // Check if purchases are available
-    final available = await _inAppPurchase.isAvailable();
-    if (!available) return;
-
-    // Load your product IDs
-    const productIds = {'tokens_100', 'premium_monthly'};
-    final response = await _inAppPurchase.queryProductDetails(productIds);
-    
-    setState(() {
-      _products = response.productDetails;
-    });
-  }
-
-  Future<void> _buyProduct(ProductDetails product) async {
-    final purchaseParam = PurchaseParam(productDetails: product);
-    await _inAppPurchase.buyConsumable(purchaseParam: purchaseParam);
-  }
-
   Future<void> _onPurchaseUpdate(List<PurchaseDetails> purchases) async {
     for (final purchase in purchases) {
       if (purchase.status == PurchaseStatus.purchased ||
           purchase.status == PurchaseStatus.restored) {
-        // ✅ Verify the purchase
         await _verifyAndComplete(purchase);
-      } else if (purchase.status == PurchaseStatus.error) {
-        // ❌ Handle error
-        print('Error: ${purchase.error?.message}');
-        if (purchase.pendingCompletePurchase) {
-          await _inAppPurchase.completePurchase(purchase);
-        }
+      } else if (purchase.pendingCompletePurchase) {
+        await _inAppPurchase.completePurchase(purchase);
       }
     }
   }
 
   Future<void> _verifyAndComplete(PurchaseDetails purchase) async {
     try {
-      // Get the verification token
-      String token;
-      if (Platform.isIOS) {
-        // ⚠️ For subscriptions, use localVerificationData to get originalTransactionId
-        // For one-time purchases, use purchaseID
-        token = purchase.purchaseID ?? '';
+      final result = await VerifyLocalPurchase.verifyPurchaseDetails(purchase);
+
+      if (result.isValid) {
+        // ✅ TODO: grant access to result.productId
       } else {
-        // Android: Always use serverVerificationData
-        token = purchase.verificationData.serverVerificationData;
+        debugPrint('❌ Purchase not valid: ${result.state}');
       }
 
-      // 🔐 Verify the purchase locally
-      final isValid = await _verifyPurchase.verifyPurchase(token);
-
-      if (isValid) {
-        // ✅ Purchase is valid - grant access
-        print('✅ Purchase verified successfully!');
-        // TODO: Grant access to purchased content
-        
-        // Complete the purchase
-        if (purchase.pendingCompletePurchase) {
-          await _inAppPurchase.completePurchase(purchase);
-        }
-      } else {
-        // ❌ Purchase is invalid or refunded
-        print('❌ Purchase verification failed');
+      if (purchase.pendingCompletePurchase) {
+        await _inAppPurchase.completePurchase(purchase);
       }
-    } catch (e) {
-      print('❌ Error verifying purchase: $e');
+    } on VerifyPurchaseException catch (e) {
+      // Network/config errors: keep the purchase pending to retry later
+      debugPrint('⚠️ Could not verify: $e');
     }
   }
 
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      home: Scaffold(
-        appBar: AppBar(title: const Text('In-App Purchase Example')),
-        body: ListView.builder(
-          itemCount: _products.length,
-          itemBuilder: (context, index) {
-            final product = _products[index];
-            return ListTile(
-              title: Text(product.title),
-              subtitle: Text(product.description),
-              trailing: ElevatedButton(
-                onPressed: () => _buyProduct(product),
-                child: Text(product.price),
-              ),
-            );
-          },
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => const Scaffold();
 }
 ```
 
 ## Configuration Reference
+
+### `VerifyLocalPurchase.initialize`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `appleConfig` | AppleConfig | ❌ | Required to verify on iOS/macOS |
+| `googlePlayConfig` | GooglePlayConfig | ❌ | Required to verify on Android |
+| `enableLogging` | bool | ❌ | Print debug logs with masked tokens (default: false) |
+
+Calling `initialize` again replaces the previous config. `VerifyLocalPurchase.dispose()` releases the cached HTTP clients.
 
 ### AppleConfig
 
@@ -337,7 +300,7 @@ class _MyAppState extends State<MyApp> {
 | `issuerId` | String | ✅ | Issuer ID from App Store Connect |
 | `keyId` | String | ✅ | Key ID from App Store Connect |
 | `privateKey` | String | ✅ | Content of your .p8 file |
-| `useSandbox` | bool | ❌ | Use sandbox for testing (default: false) |
+| `environment` | AppleEnvironment | ❌ | `production`, `sandbox` or `productionWithSandboxFallback` (default) |
 
 ### GooglePlayConfig
 
@@ -346,62 +309,71 @@ class _MyAppState extends State<MyApp> {
 | `packageName` | String | ✅ | Your app's package name (e.g., 'com.example.app') |
 | `serviceAccountJson` | String | ✅ | Complete JSON from service account file |
 
-## 🔒 Security Best Practices
+## 🔒 Security — read before shipping
 
-⚠️ **Important**: While this package verifies purchases locally, for production apps you should:
+Verifying on device means **your store credentials ship inside the app binary**. Anyone who decompiles the app can extract them, and a modified app can skip the verification call entirely. Understand the trade-off:
 
-1. **Never commit credentials** to version control
-2. **Use environment variables** or secure storage for credentials
-3. **Consider server-side verification** for critical purchases
-4. **Use ProGuard/R8** on Android to obfuscate your code
-5. **Monitor for unusual patterns** in purchase behavior
-
+1. **Use dedicated credentials** for this package — a separate App Store Connect API key and a separate Google service account — so you can revoke them without affecting anything else.
+2. **Grant the minimum permissions** in Play Console. Only grant *View financial data* if you use `getRefundsWithGooglePlay`.
+3. **Rotate keys** periodically and whenever you suspect a leak.
+4. **Obfuscate** release builds (`flutter build --obfuscate --split-debug-info=...`) and never commit credentials to version control.
+5. **Keep logging off in release** — `enableLogging` defaults to `false`.
+6. For high-value content, **prefer server-side verification**; this package fits apps where a backend isn't worth it.
 
 ## Platform-Specific Notes
 
 ### 🍎 iOS/macOS
-- Uses [App Store Server API](https://developer.apple.com/documentation/appstoreserverapi)
-- Returns `false` if purchase was refunded
-- Supports both sandbox and production environments
-- **One-time purchases**: Use `transactionId` from `purchase.purchaseID`
-- **Subscriptions**: Use `originalTransactionId` from `purchase.verificationData.localVerificationData` (JSON)
-  - Parse the `localVerificationData` JSON to extract the `originalTransactionId` field
+- Uses the [App Store Server API](https://developer.apple.com/documentation/appstoreserverapi)
+- **One-time purchases**: searches the customer's transaction history; refunded/revoked transactions return `state: revoked`
+- **Subscriptions**: checks all subscription groups, preferring the entry that matches the `originalTransactionId`
+- With the default environment, transactions not found in production are looked up in sandbox (App Review, TestFlight)
 
 ### 🤖 Android
-- Uses [Google Play Developer API](https://developers.google.com/android-publisher)
-- Handles OAuth2 authentication automatically
-- Returns `false` if purchase is canceled or pending
-- **Both purchases and subscriptions**: Always use `purchase.verificationData.serverVerificationData`
-  - This contains the `purchaseToken` for one-time purchases
-  - This contains the `subscriptionToken` for subscriptions
+- Uses the [Google Play Developer API](https://developers.google.com/android-publisher) (`productsv2` and `subscriptionsv2`)
+- OAuth2 is handled automatically and the access token is reused between calls
+- A canceled subscription stays valid until `expiryTime`; a pending one is not valid until payment completes
 
 ## Troubleshooting
 
 ### ❌ Common Errors
 
-#### Apple: "App Store API error (code: 4040010)"
-- The transaction ID doesn't exist
-- Wrong environment (check `useSandbox` setting)
+#### Apple: `state: notFound`
+- The transaction ID doesn't exist in the environment(s) queried
+- If you set `environment: AppleEnvironment.production`, sandbox purchases won't be found
 - Transaction might be from a different app
 
-#### Apple: "Invalid JWT"
+#### Apple: `unauthorized` / "Invalid JWT"
 - Check API credentials are correct
 - Ensure private key includes header/footer lines
 - Verify Issuer ID and Key ID match
 
-#### Google: "403 Forbidden" or "API not enabled"
+#### Google: `unauthorized` with status 403 or "API not enabled"
 - The **Google Play Android Developer API** is not enabled in Google Cloud Console
 - Go to **APIs & Services** > **Library**, search for **Google Play Android Developer API** and click **Enable**
 
-#### Google: "401 Unauthorized"
+#### Google: `unauthorized` with status 401
 - Service account lacks permissions
 - Not linked in Google Play Console
-- Check "View financial data" permission is granted
 
-#### Google: "404 Not Found"
-- Purchase token doesn't exist
+#### Google: `state: notFound`
+- Purchase token doesn't exist or is too old (HTTP 404/410)
 - Wrong package name
-- Purchase might be from a different app
+
+## Migrating from 1.x
+
+| 1.x | 2.0 |
+|-----|-----|
+| `VerifyLocalPurchase().verifyPurchase(token)` → `bool` | `VerifyLocalPurchase.verifyPurchase(token)` → `VerificationResult` (use `.isValid`) |
+| Instance methods | Static methods on `VerifyLocalPurchase` |
+| `AppleConfig(useSandbox: true)` | `AppleConfig(environment: AppleEnvironment.sandbox)` — default is now production with sandbox fallback |
+| `throw Exception(...)` | `throw VerifyPurchaseException(code, ...)` |
+| `RefundPlatform` | `StorePlatform` |
+| `getOneTimePurchaseToken` returned `''` when missing | Throws `VerifyPurchaseException(invalidToken)` |
+| Google `SUBSCRIPTION_STATE_PENDING` was valid | Not valid; `IN_GRACE_PERIOD` and `CANCELED` (until expiry) are valid |
+| Apple status 4 (grace period) was invalid | Valid |
+| Unknown Google token threw an exception | Returns `state: notFound` |
+| `VerifyPurchaseService` exported | Internal |
+| Native plugin (`getPlatformVersion`) | Removed — pure Dart package |
 
 ## Example App
 
@@ -429,8 +401,8 @@ MIT License - see [LICENSE](LICENSE) file for details.
 ## Support
 
 - 📖 [Documentation](https://pub.dev/packages/verify_local_purchase)
-- 🐛 [Issue Tracker](https://github.com/yourusername/verify_local_purchase/issues)
-- 💬 [Discussions](https://github.com/yourusername/verify_local_purchase/discussions)
+- 🐛 [Issue Tracker](https://github.com/andrelucassvt/verify_local_purchase/issues)
+- 💬 [Discussions](https://github.com/andrelucassvt/verify_local_purchase/discussions)
 
 ---
 

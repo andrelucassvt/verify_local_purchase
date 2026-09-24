@@ -1,6 +1,7 @@
 import 'package:app_store_server_sdk/app_store_server_sdk.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:verify_local_purchase/models/refund_entry.dart';
+import 'package:verify_local_purchase/models/store_platform.dart';
 
 void main() {
   group('RefundEntry.fromGoogleVoidedPurchase', () {
@@ -14,7 +15,7 @@ void main() {
 
       final entry = RefundEntry.fromGoogleVoidedPurchase(json);
 
-      expect(entry.platform, RefundPlatform.google);
+      expect(entry.platform, StorePlatform.google);
       expect(entry.transactionId, 'GPA.1234');
       expect(entry.originalId, 'tok_abc');
       expect(entry.productId, isNull);
@@ -89,7 +90,7 @@ void main() {
 
       final entry = RefundEntry.fromAppleTransaction(tx);
 
-      expect(entry.platform, RefundPlatform.apple);
+      expect(entry.platform, StorePlatform.apple);
       expect(entry.transactionId, 'tx_apple_001');
       expect(entry.originalId, 'orig_tx_001');
       expect(entry.productId, 'com.example.premium');

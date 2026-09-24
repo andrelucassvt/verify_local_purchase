@@ -6,7 +6,29 @@ class VerifyPurchaseConfig {
   /// Google Play Store configuration
   final GooglePlayConfig? googlePlayConfig;
 
-  VerifyPurchaseConfig({this.appleConfig, this.googlePlayConfig});
+  /// Prints debug logs (with masked tokens). Off by default.
+  final bool enableLogging;
+
+  const VerifyPurchaseConfig({
+    this.appleConfig,
+    this.googlePlayConfig,
+    this.enableLogging = false,
+  });
+}
+
+/// Which App Store Server API environment to query.
+enum AppleEnvironment {
+  /// Production only.
+  production,
+
+  /// Sandbox only (Xcode / StoreKit sandbox testing).
+  sandbox,
+
+  /// Production first; on "transaction not found" retries in sandbox.
+  ///
+  /// Recommended by Apple: App Review and TestFlight purchases happen in
+  /// sandbox even for production builds.
+  productionWithSandboxFallback,
 }
 
 /// Apple App Store configuration
@@ -20,18 +42,18 @@ class AppleConfig {
   /// Your App Store Connect API key ID
   final String keyId;
 
-  /// Your App Store Connect API private key (encrypted or plain)
+  /// Your App Store Connect API private key (content of the .p8 file)
   final String privateKey;
 
-  /// Whether to use sandbox environment (default: false for production)
-  final bool useSandbox;
+  /// Environment to query (default: production with sandbox fallback)
+  final AppleEnvironment environment;
 
-  AppleConfig({
+  const AppleConfig({
     required this.bundleId,
     required this.issuerId,
     required this.keyId,
     required this.privateKey,
-    this.useSandbox = false,
+    this.environment = AppleEnvironment.productionWithSandboxFallback,
   });
 }
 
@@ -43,7 +65,7 @@ class GooglePlayConfig {
   /// Your Google Service Account credentials JSON string
   final String serviceAccountJson;
 
-  GooglePlayConfig({
+  const GooglePlayConfig({
     required this.packageName,
     required this.serviceAccountJson,
   });

@@ -1,3 +1,24 @@
+## 2.0.0
+
+**Breaking changes** — see "Migrating from 1.x" in the README.
+
+* feat!: verification methods return `VerificationResult` (`isValid`, `state`, `productId`, `expiresAt`, `willAutoRenew`, `isSandbox`, `raw`) instead of `bool`
+* feat!: `VerifyLocalPurchase` methods are now static (`VerifyLocalPurchase.verifyPurchase(...)`)
+* feat!: errors are thrown as `VerifyPurchaseException` with a `VerifyPurchaseErrorCode`
+* feat!: `AppleConfig.useSandbox` replaced by `AppleConfig.environment`; default `productionWithSandboxFallback` retries in sandbox when production returns "transaction not found" (App Review / TestFlight)
+* feat!: `RefundPlatform` renamed to `StorePlatform`; `VerifyPurchaseService` is no longer exported
+* feat!: removed the unused native platform channel — now a pure Dart package (Android, iOS, macOS)
+* feat: `verifyPurchaseDetails` / `verifySubscriptionDetails` take a `PurchaseDetails` directly
+* feat: `initialize(enableLogging:)` — logs are off by default and tokens are masked
+* feat: `VerifyLocalPurchase.dispose()`
+* fix: Apple subscriptions in billing grace period (status 4) are valid; all subscription groups are checked, preferring the entry matching the `originalTransactionId`
+* fix: Google `SUBSCRIPTION_STATE_PENDING` is no longer valid (reverts 1.0.6); `IN_GRACE_PERIOD` is valid; `CANCELED` stays valid until `expiryTime`
+* fix: macOS was verified against Google Play
+* fix: `getSubscriptionToken` / `getOneTimePurchaseToken` throw `invalidToken` instead of crashing or returning `''`
+* fix: unknown Google tokens (HTTP 404/410) return `state: notFound` instead of throwing
+* perf: Google OAuth client and App Store clients are reused between calls
+* chore: `flutter >=3.38.0`, CI workflow, unit tests for all store states
+
 ## 1.1.0
 
 * feat: add `getRefundsWithAppStore()` — lists refunds for a single customer via App Store Server API (`getRefundHistory`)

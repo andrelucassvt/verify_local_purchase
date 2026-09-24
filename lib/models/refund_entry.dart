@@ -1,9 +1,9 @@
 import 'package:app_store_server_sdk/app_store_server_sdk.dart';
 
-enum RefundPlatform { apple, google }
+import 'store_platform.dart';
 
 class RefundEntry {
-  final RefundPlatform platform;
+  final StorePlatform platform;
 
   /// For Apple: transactionId. For Google: orderId.
   final String transactionId;
@@ -40,7 +40,7 @@ class RefundEntry {
         : int.tryParse(rawMillis?.toString() ?? '') ?? 0;
 
     return RefundEntry(
-      platform: RefundPlatform.google,
+      platform: StorePlatform.google,
       transactionId: json['orderId'] as String,
       originalId: json['purchaseToken'] as String,
       productId: null,
@@ -52,7 +52,7 @@ class RefundEntry {
 
   factory RefundEntry.fromAppleTransaction(JWSTransactionDecodedPayload tx) {
     return RefundEntry(
-      platform: RefundPlatform.apple,
+      platform: StorePlatform.apple,
       transactionId: tx.transactionId,
       originalId: tx.originalTransactionId,
       productId: tx.productId,

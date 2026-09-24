@@ -1,12 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:verify_local_purchase/verify_local_purchase.dart';
 
 void main() {
   // Initialize the verification service with your credentials
   VerifyLocalPurchase.initialize(
+    enableLogging: true,
     appleConfig: AppleConfig(
       bundleId: 'com.example.app',
       issuerId: 'your-issuer-id-here',
@@ -14,7 +14,7 @@ void main() {
       privateKey: '''-----BEGIN PRIVATE KEY-----
 YOUR_PRIVATE_KEY_CONTENT_HERE
 -----END PRIVATE KEY-----''',
-      useSandbox: true,
+      environment: AppleEnvironment.productionWithSandboxFallback,
     ),
     googlePlayConfig: GooglePlayConfig(
       packageName: 'com.example.app',
@@ -55,7 +55,6 @@ class PurchaseExamplePage extends StatefulWidget {
 
 class _PurchaseExamplePageState extends State<PurchaseExamplePage> {
   final InAppPurchase _inAppPurchase = InAppPurchase.instance;
-  final VerifyLocalPurchase _verifyPurchase = VerifyLocalPurchase();
 
   StreamSubscription<List<PurchaseDetails>>? _purchaseSubscription;
   List<ProductDetails> _products = [];
@@ -186,26 +185,18 @@ class _PurchaseExamplePageState extends State<PurchaseExamplePage> {
     PurchaseDetails purchaseDetails,
   ) async {
     try {
-      // Get token for verification (iOS uses transactionId, Android uses purchaseToken)
-      String verificationToken = getOneTimePurchaseToken(purchaseDetails);
-
-      if (verificationToken.isEmpty) {
-        debugPrint('⚠️ Empty verification token');
-        _showMessage('❌ Invalid purchase data');
-        if (purchaseDetails.pendingCompletePurchase) {
-          await _inAppPurchase.completePurchase(purchaseDetails);
-        }
-        return;
-      }
-
       debugPrint('🔐 Verifying purchase...');
       _showMessage('🔐 Verifying purchase...');
 
       // Verify the purchase locally
-      final isValid = await _verifyPurchase.verifyPurchase(verificationToken);
+      // Extracts the right token (transactionId on iOS, purchaseToken on
+      // Android) and verifies it with the store
+      final result = await VerifyLocalPurchase.verifyPurchaseDetails(
+        purchaseDetails,
+      );
 
-      if (!isValid) {
-        debugPrint('❌ Purchase verification failed');
+      if (!result.isValid) {
+        debugPrint('❌ Purchase verification failed: ${result.state}');
         _showMessage('❌ Purchase verification failed');
         if (purchaseDetails.pendingCompletePurchase) {
           await _inAppPurchase.completePurchase(purchaseDetails);

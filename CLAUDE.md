@@ -1,27 +1,33 @@
 # verify_local_purchase
 
-Pacote/plugin Flutter publicável (pub.dev) que verifica compras e assinaturas in-app **no dispositivo**, consultando a App Store Server API (Apple) e a Google Play Developer API (Google) — sem backend próprio.
+Pacote Flutter publicável (pub.dev) que verifica compras e assinaturas in-app **no dispositivo**, consultando a App Store Server API (Apple) e a Google Play Developer API (Google) — sem backend próprio.
 
 ## Stack
 
-- Dart `^3.10.0` / Flutter `>=3.3.0` — projeto do tipo **plugin package** (Android/iOS/macOS)
+- Dart `^3.10.0` / Flutter `>=3.38.0` — **package Dart puro** (sem código nativo), plataformas Android/iOS/macOS
 - `app_store_server_sdk` — cliente da App Store Server API
 - `googleapis_auth` — autenticação Service Account para a Google Play Developer API
+- `http` — client HTTP (injetável nos testes via `package:http/testing.dart`)
 - `in_app_purchase` — reexportado pela API pública; origem dos `PurchaseDetails`
 
 ## Arquitetura
 
-Fachada estática pública `VerifyLocalPurchase` → delega para `VerifyPurchaseService` (toda a lógica de verificação e estado da config). **Não** é Clean Architecture com Presentation/Domain/Data — é um pacote. O scaffold de platform channel (`*_platform_interface.dart`, `*_method_channel.dart`, código nativo Swift/Kotlin) existe por ser plugin, mas só expõe `getPlatformVersion()` e **não participa da verificação** — a verificação é 100% Dart via HTTP.
+Fachada 100% estática `VerifyLocalPurchase` → guarda uma instância de `VerifyPurchaseService` (criada no `initialize`) que faz as chamadas HTTP → `StoreResponseParser` (funções puras) converte as respostas em `VerificationResult`. **Não** é Clean Architecture com Presentation/Domain/Data — é um pacote. Não há código nativo nem platform channel (removidos na 2.0.0).
 
 ## Estrutura
 
-- `lib/verify_local_purchase.dart` — API pública (fachada) + exports do pacote
-- `lib/service/verify_purchase_service.dart` — lógica de verificação Apple/Google; `_config` estático
-- `lib/models/verify_purchase_config.dart` — `VerifyPurchaseConfig`, `AppleConfig`, `GooglePlayConfig`
-- `lib/models/refund_entry.dart` — `RefundEntry`, `RefundPlatform`; normaliza reembolsos Apple/Google
+- `lib/verify_local_purchase.dart` — API pública (fachada estática) + exports do pacote
+- `lib/service/verify_purchase_service.dart` — chamadas Apple/Google, fallback de sandbox, cache de clients, mapeamento de erros; não exportado
+- `lib/service/store_response_parser.dart` — regras puras de status → `VerificationResult` (onde mora "o que é válido")
+- `lib/models/verification_result.dart` — `VerificationResult`, `VerificationState`
+- `lib/models/verify_purchase_exception.dart` — `VerifyPurchaseException`, `VerifyPurchaseErrorCode`
+- `lib/models/verify_purchase_config.dart` — `VerifyPurchaseConfig`, `AppleConfig`, `AppleEnvironment`, `GooglePlayConfig`
+- `lib/models/refund_entry.dart` — `RefundEntry`; normaliza reembolsos Apple/Google
+- `lib/models/store_platform.dart` — `StorePlatform` (apple/google)
 - `lib/utils/purchase_token_utils.dart` — extrai o token certo de `PurchaseDetails`
-- `lib/verify_local_purchase_{platform_interface,method_channel}.dart` — boilerplate de plugin (não usado na verificação)
-- `example/` — app de exemplo do plugin
+- `test/helpers/apple_fixtures.dart` — monta JWS/StatusResponse falsos para testes
+- `example/` — app de exemplo
+- `.github/workflows/ci.yml` — format, analyze, test, publish dry-run
 - `docs/flow/` — documentação dos fluxos do pacote
 
 ## Comandos
@@ -33,17 +39,20 @@ Fachada estática pública `VerifyLocalPurchase` → delega para `VerifyPurchase
 
 ## Convenções
 
-- Verificação é por plataforma de execução: `Platform.isIOS` → App Store; caso contrário → Google Play.
-- `VerifyPurchaseService` exige `initialize()` antes de qualquer verificação — senão lança `Exception`.
-- Métodos de verificação retornam `Future<bool>`; falhas de API/config são lançadas como `Exception`.
+- Verificação é por plataforma de execução: `Platform.isIOS || Platform.isMacOS` → App Store; caso contrário → Google Play.
+- A fachada exige `initialize()` antes de qualquer verificação — senão lança `VerifyPurchaseException(notInitialized)`.
+- Métodos de verificação retornam `Future<VerificationResult>`; token/transação desconhecido **não** é erro (`state: notFound`). Falhas de API/config/rede lançam `VerifyPurchaseException` com `code`.
+- Regras de validade ficam em `StoreResponseParser`; o service não decide status. Toda regra nova ganha teste em `test/store_response_parser_test.dart`.
+- Testes injetam dependências pelo construtor de `VerifyPurchaseService` (`googleClient`, `appStoreApiFactory`, `now`, `isApplePlatform`).
 - Antes de mexer no comportamento de verificação, leia o flow relevante em `docs/flow/`.
 
 ## Gotchas
 
-- A config (`_config`) é **estática e global**: uma `initialize()` sobrescreve a anterior; não há suporte a múltiplas configs por processo.
-- Assinatura iOS (`verifySubscriptionWithAppStore`) retorna no **primeiro** `lastTransaction` do **primeiro** `status` — não agrega múltiplos grupos de assinatura. Revisar antes de assumir suporte multi-grupo.
-- Android trata `SUBSCRIPTION_STATE_PENDING` como assinatura ativa.
-- `getSubscriptionToken` (iOS) faz `data['originalTransactionId'] as String` sem null-check — lança se a chave faltar.
+- A fachada guarda **um** service estático: uma `initialize()` descarta o anterior (e fecha seus clients); não há múltiplas configs por processo.
+- Assinatura Apple: válida em status 1 (active) e 4 (grace period). Considera todos os grupos, priorizando o `lastTransaction` com o mesmo `originalTransactionId`; sem match, usa o melhor status entre todos.
+- Assinatura Google: válida em `ACTIVE`/`CANCELED`/`IN_GRACE_PERIOD` **e** `expiryTime` futuro. `PENDING` **não** é válido (mudou na 2.0.0).
+- Apple com `AppleEnvironment.productionWithSandboxFallback` (default): erros `4040001/4040005/4040010` em produção disparam nova tentativa no sandbox.
+- `app_store_server_sdk` 1.2.10 não tem `getTransactionInfo` — compra única pagina `getTransactionHistory`. O SDK também não valida a assinatura JWS (`unverifiedPayload`).
 - Reembolsos têm escopos diferentes: `getRefundsWithAppStore` é por cliente (`originalTransactionId`); `getRefundsWithGooglePlay` é do app inteiro (paginado, últimos 30 dias por padrão). `RefundEntry.productId` é sempre `null` no Google; `RefundEntry.reasonCode` é sempre `null` na Apple (SDK 1.2.10).
 
 ## Não fazer
@@ -51,7 +60,7 @@ Fachada estática pública `VerifyLocalPurchase` → delega para `VerifyPurchase
 - Não introduzir camadas de app (Cubit/Presentation/Domain/Data) — este é um pacote, não um app.
 - Não criar arquivos barrel/export adicionais; os exports vivem em `lib/verify_local_purchase.dart`.
 - Não fazer `flutter pub upgrade` sem perguntar — versões são pinadas.
-- Logs de debug usam `debugPrint` (com emoji/PT-BR) no service; mantenha o padrão existente do arquivo ao editá-lo.
+- Logs de debug usam `_log()` (→ `debugPrint`, com emoji/PT-BR, só com `enableLogging`) no service; tokens sempre via `mask()`. Não chame `debugPrint` direto.
 
 ## 📖 Documentação de Flows
 
