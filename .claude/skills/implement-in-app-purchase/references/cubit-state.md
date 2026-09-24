@@ -221,14 +221,14 @@ class PaywallCubit extends Cubit<PaywallState> {
         case PurchaseStatus.purchased:
         case PurchaseStatus.restored:
           switch (await _verify(purchase)) {
-            case VerificationResult.valid:
+            case GrantResult.valid:
               await _completeSafely(purchase);
               if (isClosed) return;
               granted = true;
               _watchdog?.cancel();
               if (state is! PaywallSuccess) emit(PaywallSuccess(purchase.productID));
 
-            case VerificationResult.invalid:
+            case GrantResult.invalid:
               await _completeIfPending(purchase); // reembolsada/expirada: pare a reentrega
               if (_restoring) {
                 restoreFailure ??= PaywallNotice.verificationFailed;
@@ -236,7 +236,7 @@ class PaywallCubit extends Cubit<PaywallState> {
                 _unlock(notice: PaywallNotice.verificationFailed);
               }
 
-            case VerificationResult.unavailable:
+            case GrantResult.unavailable:
               // NÃO complete: a loja reentrega e a verificação roda de novo.
               if (_restoring) {
                 restoreFailure = PaywallNotice.verificationUnavailable;
@@ -263,11 +263,11 @@ class PaywallCubit extends Cubit<PaywallState> {
     _unlock(notice: PaywallNotice.purchaseFailed);
   }
 
-  Future<VerificationResult> _verify(PurchaseDetails purchase) async {
+  Future<GrantResult> _verify(PurchaseDetails purchase) async {
     try {
       return await _entitlements.verifyAndGrant(purchase).timeout(_verifyTimeout);
     } catch (_) {
-      return VerificationResult.unavailable; // inclui TimeoutException
+      return GrantResult.unavailable; // inclui TimeoutException
     }
   }
 

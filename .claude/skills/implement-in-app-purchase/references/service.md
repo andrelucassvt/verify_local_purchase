@@ -1,7 +1,7 @@
 # Service — PurchaseIds, InAppPurchaseService e EntitlementService
 
 Índice: 1. PurchaseIds · 2. InAppPurchaseService (interface) · 3. InAppPurchaseServiceImpl ·
-4. EntitlementService (contrato) · 5. LocalEntitlementService (modo 🅰) · 6. Ofertas de assinatura no Android ·
+4. EntitlementService (contrato) · 5. PurchaseVerifier + LocalEntitlementService (modo 🅰) · 6. Ofertas de assinatura no Android ·
 7. Apps com login: registro do aparelho, espelho remoto e grant manual
 
 Imports usam `package:base_app/...` — troque pelo nome do pacote do projeto. Interface e implementação ficam em
@@ -169,17 +169,21 @@ Notas:
 ```dart
 import 'package:in_app_purchase/in_app_purchase.dart';
 
-enum VerificationResult {
+/// Resposta do app para uma compra entregue pela loja. NÃO confunda com o
+/// `VerificationResult` do verify_local_purchase — aquele é o que a loja disse;
+/// este é o que o Cubit deve fazer com a transação.
+enum GrantResult {
   /// Compra legítima e ativa: conceda o acesso e complete a transação.
   valid,
 
   /// A fonte de verdade disse que a compra não vale (reembolsada, expirada,
-  /// inexistente). Não conceda; complete a transação para a loja parar de
-  /// reentregá-la.
+  /// inexistente, de outro produto). Não conceda; complete a transação para a
+  /// loja parar de reentregá-la.
   invalid,
 
-  /// Não deu para consultar a fonte de verdade (sem rede, timeout, 5xx).
-  /// NÃO complete: a loja reentrega a transação e a verificação roda de novo.
+  /// Não deu para consultar a fonte de verdade (sem rede, timeout, 5xx,
+  /// credencial errada) ou o pagamento ainda não liquidou. NÃO complete: a loja
+  /// reentrega a transação e a verificação roda de novo.
   unavailable,
 }
 
@@ -188,7 +192,7 @@ enum VerificationResult {
 /// 🅱 ServerEntitlementService (PurchaseRepository)
 abstract class EntitlementService {
   /// Verifica a compra e, se válida, registra o direito de acesso.
-  Future<VerificationResult> verifyAndGrant(PurchaseDetails purchase);
+  Future<GrantResult> verifyAndGrant(PurchaseDetails purchase);
 
   /// Último estado conhecido — rápido e funciona offline.
   Future<bool> hasAccess(String productId);
@@ -203,9 +207,78 @@ Por que três resultados e não `bool`: com `bool`, uma queda de rede durante a 
 inválida", a transação é completada e a usuária paga sem receber. Com `unavailable` a transação fica aberta,
 a loja a reentrega na próxima abertura e a verificação roda de novo — sem cobrar duas vezes.
 
+O nome é `GrantResult` de propósito: desde a 2.0.0 o `verify_local_purchase` exporta a classe
+`VerificationResult`, e um enum com esse nome no app colide no import.
+
 ---
 
 ## 5. LocalEntitlementService (modo 🅰)
+
+Três arquivos: a porta `PurchaseVerifier` (interface + impl sobre o pacote) e o service. A porta existe porque a
+fachada `VerifyLocalPurchase` é 100% estática — sem ela o service não tem como receber um fake no teste.
+
+### 5.1 PurchaseVerifier
+
+`lib/common/services/in_app_purchase/purchase_verifier.dart`
+
+```dart
+import 'package:verify_local_purchase/verify_local_purchase.dart';
+
+/// Porta para o verify_local_purchase. Todo método lança
+/// `VerifyPurchaseException` em falha de rede/API/config.
+abstract class PurchaseVerifier {
+  /// Token que identifica a compra na loja — é o que `refresh()` re-verifica.
+  /// Assinatura no iOS: `originalTransactionId` (estável entre renovações).
+  String tokenOf(PurchaseDetails purchase, {required bool subscription});
+
+  /// Consulta a loja da [platform] informada — não a do aparelho atual.
+  Future<VerificationResult> verify(
+    String token,
+    StorePlatform platform, {
+    required bool subscription,
+  });
+}
+```
+
+`lib/common/services/in_app_purchase/purchase_verifier_impl.dart`
+
+```dart
+import 'package:base_app/common/services/in_app_purchase/purchase_verifier.dart';
+import 'package:verify_local_purchase/verify_local_purchase.dart';
+
+class PurchaseVerifierImpl implements PurchaseVerifier {
+  const PurchaseVerifierImpl();
+
+  @override
+  String tokenOf(PurchaseDetails purchase, {required bool subscription}) =>
+      subscription
+          ? getSubscriptionToken(purchase)
+          : getOneTimePurchaseToken(purchase);
+
+  @override
+  Future<VerificationResult> verify(
+    String token,
+    StorePlatform platform, {
+    required bool subscription,
+  }) =>
+      switch ((platform, subscription)) {
+        (StorePlatform.apple, true) =>
+          VerifyLocalPurchase.verifySubscriptionWithAppStore(token),
+        (StorePlatform.apple, false) =>
+          VerifyLocalPurchase.verifyPurchaseWithAppStore(token),
+        (StorePlatform.google, true) =>
+          VerifyLocalPurchase.verifySubscriptionWithGooglePlay(token),
+        (StorePlatform.google, false) =>
+          VerifyLocalPurchase.verifyPurchaseWithGooglePlay(token),
+      };
+}
+```
+
+Os métodos `...WithAppStore`/`...WithGooglePlay` são usados em vez de `verifySubscription()`/`verifyPurchase()`
+porque os genéricos escolhem a loja por `Platform.isIOS` — o `refresh()` precisa verificar pela plataforma
+gravada no registro, não pela do aparelho.
+
+### 5.2 LocalEntitlementService
 
 `lib/common/services/in_app_purchase/local_entitlement_service.dart`
 
@@ -214,152 +287,179 @@ import 'dart:convert';
 
 import 'package:base_app/common/services/in_app_purchase/entitlement_service.dart';
 import 'package:base_app/common/services/in_app_purchase/purchase_ids.dart';
+import 'package:base_app/common/services/in_app_purchase/purchase_verifier.dart';
+import 'package:base_app/common/services/in_app_purchase/purchase_verifier_impl.dart';
 import 'package:base_app/common/services/storage_service.dart';
+import 'package:flutter/foundation.dart';
 import 'package:verify_local_purchase/verify_local_purchase.dart';
-
-/// Credenciais das APIs de verificação. Vêm de `--dart-define` (ver setup.md),
-/// nunca de literais no código.
-class LocalVerificationCredentials {
-  const LocalVerificationCredentials({
-    required this.appleBundleId,
-    required this.appleIssuerId,
-    required this.appleKeyId,
-    required this.applePrivateKey,
-    required this.androidPackageName,
-    required this.googleServiceAccountJson,
-  });
-
-  final String appleBundleId;
-  final String appleIssuerId;
-  final String appleKeyId;
-  final String applePrivateKey;
-  final String androidPackageName;
-  final String googleServiceAccountJson;
-
-  bool get hasApple =>
-      appleIssuerId.isNotEmpty && appleKeyId.isNotEmpty && applePrivateKey.isNotEmpty;
-  bool get hasGoogle => googleServiceAccountJson.isNotEmpty;
-}
 
 class LocalEntitlementService implements EntitlementService {
   LocalEntitlementService(
-    this._storage,
-    this._credentials, {
-    VerifyLocalPurchase? verifier,
-  }) : _verifier = verifier ?? VerifyLocalPurchase();
+    this._storage, {
+    PurchaseVerifier verifier = const PurchaseVerifierImpl(),
+    DateTime Function()? now,
+  })  : _verifier = verifier,
+        _now = now ?? DateTime.now;
 
   final StorageService _storage;
-  final LocalVerificationCredentials _credentials;
-  final VerifyLocalPurchase _verifier;
+  final PurchaseVerifier _verifier;
+  final DateTime Function() _now;
 
-  /// `entitlement_<productId>` → JSON {"token", "source", "sandbox"}.
+  /// Registro do aparelho: `entitlement_<productId>` → JSON
+  /// {"token", "source", "isValid", "expiresAt", "checkedAt", "sandbox"}.
   static String entitlementKey(String productId) => 'entitlement_$productId';
 
   /// IDs de transação de consumíveis já creditados (idempotência).
   static const consumedKey = 'purchase_consumed_ids';
 
+  /// Quanto o acesso sobrevive offline além do último ponto confirmado
+  /// (o maior entre `expiresAt` e `checkedAt`) enquanto `refresh()` não
+  /// consegue falar com a loja.
+  static const offlineTolerance = Duration(days: 3);
+
   @override
-  Future<VerificationResult> verifyAndGrant(PurchaseDetails purchase) async {
+  Future<GrantResult> verifyAndGrant(PurchaseDetails purchase) async {
     final productId = purchase.productID;
-    final isSubscription = PurchaseIds.isSubscription(productId);
+    final subscription = PurchaseIds.isSubscription(productId);
+    final source = purchase.verificationData.source; // "app_store" | "google_play"
 
     final String token;
+    final VerificationResult result;
     try {
-      token = isSubscription
-          ? getSubscriptionToken(purchase)
-          : getOneTimePurchaseToken(purchase);
-    } catch (_) {
-      return VerificationResult.unavailable; // formato inesperado: não descarte a compra
+      token = _verifier.tokenOf(purchase, subscription: subscription);
+      result = await _verifier.verify(
+        token,
+        _platformOf(source),
+        subscription: subscription,
+      );
+    } on VerifyPurchaseException catch (e) {
+      _reportIfMisconfigured(e);
+      return GrantResult.unavailable; // a loja reentrega e tentamos de novo
     }
-    if (token.isEmpty) return VerificationResult.unavailable;
 
-    final sandbox = _isSandboxTransaction(purchase);
-    _configureVerifier(useSandbox: sandbox);
-
-    final bool isValid;
-    try {
-      isValid = isSubscription
-          ? await _verifier.verifySubscription(token)
-          : await _verifier.verifyPurchase(token);
-    } catch (_) {
-      return VerificationResult.unavailable; // rede/API: a loja reentrega, tentamos de novo
-    }
-    if (!isValid) return VerificationResult.invalid;
+    final grant = grantResultOf(result, productId);
+    if (grant != GrantResult.valid) return grant;
 
     if (PurchaseIds.isConsumable(productId)) {
       final firstTime = await _markConsumed(purchase.purchaseID ?? token);
       if (firstTime) {
         // TODO(app): aplique aqui o efeito do consumível (ex.: CreditsService.add(100)).
       }
-      return VerificationResult.valid;
+      return GrantResult.valid;
     }
 
-    await _storage.setString(
-      entitlementKey(productId),
-      jsonEncode({
-        'token': token,
-        'source': purchase.verificationData.source, // "app_store" | "google_play"
-        'sandbox': sandbox,
-      }),
-    );
-    return VerificationResult.valid;
+    // Upgrade/downgrade de assinatura: a loja responde com o plano vigente.
+    await _saveRecord(result.productId ?? productId, {
+      'token': token,
+      'source': source,
+      ..._statusOf(result),
+    });
+    return GrantResult.valid;
+  }
+
+  /// Traduz o que a loja disse no que o Cubit deve fazer com a transação.
+  /// Público e estático para ser testado isoladamente.
+  static GrantResult grantResultOf(VerificationResult result, String productId) {
+    // Token de outro produto (ex.: consumível barato apresentado como premium).
+    // Assinatura aceita qualquer plano do app — após upgrade a loja devolve o
+    // plano novo para a transação antiga.
+    final storeProduct = result.productId;
+    if (storeProduct != null) {
+      final matches = PurchaseIds.isSubscription(productId)
+          ? PurchaseIds.isSubscription(storeProduct)
+          : storeProduct == productId;
+      if (!matches) return GrantResult.invalid;
+    }
+    if (result.isValid) return GrantResult.valid;
+    return switch (result.state) {
+      // Pagamento não liquidado / estado novo da loja: não descarte a compra.
+      VerificationState.pending || VerificationState.unknown => GrantResult.unavailable,
+      // notFound, revoked, expired, billingRetry, onHold, paused, canceled vencido.
+      _ => GrantResult.invalid,
+    };
   }
 
   @override
-  Future<bool> hasAccess(String productId) async =>
-      await _storage.getString(entitlementKey(productId)) != null;
+  Future<bool> hasAccess(String productId) async {
+    final record = await _readRecord(productId);
+    if (record == null || record['isValid'] != true) return false;
+    final expiresAt = DateTime.tryParse(record['expiresAt'] as String? ?? '');
+    if (expiresAt == null) return true; // não-consumível: vale até reembolso
+    final checkedAt =
+        DateTime.tryParse(record['checkedAt'] as String? ?? '') ?? expiresAt;
+    // Grace period: `expiresAt` já passou, mas a loja confirmou há pouco.
+    final confirmedUntil = expiresAt.isAfter(checkedAt) ? expiresAt : checkedAt;
+    return _now().isBefore(confirmedUntil.add(offlineTolerance));
+  }
 
   @override
   Future<void> refresh() async {
-    for (final productId in PurchaseIds.subscriptions) {
-      final raw = await _storage.getString(entitlementKey(productId));
-      if (raw == null) continue;
-      final data = jsonDecode(raw) as Map<String, dynamic>;
-      _configureVerifier(useSandbox: data['sandbox'] == true);
+    // Não-consumíveis também: é assim que um reembolso chega ao app.
+    for (final productId in {...PurchaseIds.nonConsumables, ...PurchaseIds.subscriptions}) {
+      final record = await _readRecord(productId);
+      if (record == null) continue;
+
+      final VerificationResult result;
       try {
-        final active = await _verifier.verifySubscription(data['token'] as String);
-        if (!active) await _storage.remove(entitlementKey(productId));
-      } catch (_) {
-        // Sem rede: mantenha o último estado conhecido em vez de bloquear a usuária.
+        result = await _verifier.verify(
+          record['token'] as String,
+          _platformOf(record['source'] as String),
+          subscription: PurchaseIds.isSubscription(productId),
+        );
+      } on VerifyPurchaseException catch (e) {
+        _reportIfMisconfigured(e);
+        continue; // sem rede: vale o último estado conhecido + tolerância
+      }
+
+      switch (result.state) {
+        // Token morto: não há o que re-verificar depois.
+        case VerificationState.revoked || VerificationState.notFound:
+          await _storage.remove(entitlementKey(productId));
+        // Estado novo da loja: não mexa no que já se sabe.
+        case VerificationState.unknown:
+          break;
+        // Expirada, em billing retry, pausada... MANTENHA o token: se o
+        // pagamento se recuperar ou a usuária reassinar (Apple mantém o
+        // originalTransactionId), o próximo refresh() devolve o acesso.
+        default:
+          await _saveRecord(productId, {...record, ..._statusOf(result)});
       }
     }
   }
 
-  /// TestFlight e a revisão da App Store geram transações de SANDBOX mesmo em
-  /// build de produção. O verificador tem um único flag global, então ele é
-  /// ajustado por transação lendo o `environment` que o StoreKit 2 entrega
-  /// ("Production", "Sandbox" ou "Xcode"). No Android não há distinção.
-  bool _isSandboxTransaction(PurchaseDetails purchase) {
-    if (purchase.verificationData.source != 'app_store') return false;
-    try {
-      final json = jsonDecode(purchase.verificationData.localVerificationData)
-          as Map<String, dynamic>;
-      return json['environment'] != 'Production';
-    } catch (_) {
-      return false; // StoreKit 1 entrega recibo base64, não JSON: assuma produção
+  Map<String, dynamic> _statusOf(VerificationResult result) => {
+        'isValid': result.isValid,
+        'expiresAt': result.expiresAt?.toIso8601String(),
+        'checkedAt': _now().toIso8601String(),
+        'sandbox': result.isSandbox,
+      };
+
+  static StorePlatform _platformOf(String source) =>
+      source == 'app_store' ? StorePlatform.apple : StorePlatform.google;
+
+  /// Configuração errada não se resolve sozinha. Nunca vira `invalid` (a
+  /// usuária pagou), mas precisa aparecer — senão todo o faturamento some
+  /// em silêncio como "verificação indisponível".
+  void _reportIfMisconfigured(VerifyPurchaseException e) {
+    const configErrors = {
+      VerifyPurchaseErrorCode.notInitialized,
+      VerifyPurchaseErrorCode.missingConfig,
+      VerifyPurchaseErrorCode.invalidCredentials,
+      VerifyPurchaseErrorCode.unauthorized,
+    };
+    if (configErrors.contains(e.code)) {
+      // TODO(app): envie também ao crash reporter (Crashlytics/Sentry).
+      debugPrint('IAP: verificação mal configurada — $e');
     }
   }
 
-  /// `initialize` só guarda a config em memória — é barato chamar por transação.
-  void _configureVerifier({required bool useSandbox}) {
-    VerifyLocalPurchase.initialize(
-      appleConfig: _credentials.hasApple
-          ? AppleConfig(
-              bundleId: _credentials.appleBundleId,
-              issuerId: _credentials.appleIssuerId,
-              keyId: _credentials.appleKeyId,
-              privateKey: _credentials.applePrivateKey,
-              useSandbox: useSandbox,
-            )
-          : null,
-      googlePlayConfig: _credentials.hasGoogle
-          ? GooglePlayConfig(
-              packageName: _credentials.androidPackageName,
-              serviceAccountJson: _credentials.googleServiceAccountJson,
-            )
-          : null,
-    );
+  Future<Map<String, dynamic>?> _readRecord(String productId) async {
+    final raw = await _storage.getString(entitlementKey(productId));
+    return raw == null ? null : jsonDecode(raw) as Map<String, dynamic>;
   }
+
+  Future<void> _saveRecord(String productId, Map<String, dynamic> record) =>
+      _storage.setString(entitlementKey(productId), jsonEncode(record));
 
   Future<bool> _markConsumed(String transactionId) async {
     final raw = await _storage.getString(consumedKey);
@@ -373,17 +473,37 @@ class LocalEntitlementService implements EntitlementService {
 }
 ```
 
+### 5.3 Como o `VerificationResult` do pacote vira `GrantResult`
+
+| `VerificationResult` (v2) | Na compra (`verifyAndGrant`) | No `refresh()` |
+|---|---|---|
+| `isValid: true` (`purchased`, `active`, `canceled` não vencido, `gracePeriod`) | `valid` | atualiza status e `expiresAt` |
+| `pending` | `unavailable` — a loja reentrega quando liquidar | atualiza status (sem acesso) |
+| `unknown` | `unavailable` — estado novo da loja; não descarte | não mexe |
+| `notFound`, `revoked` | `invalid` | remove o registro |
+| `expired`, `billingRetry`, `onHold`, `paused` | `invalid` | atualiza status (sem acesso), **mantém o token** |
+| `productId` de outro produto | `invalid` | — |
+| `VerifyPurchaseException` (qualquer `code`) | `unavailable`; códigos de config são reportados | mantém o último estado |
+
 Pontos que importam neste arquivo:
 
-- **`VerifyLocalPurchase.initialize` recebe parâmetros nomeados** (`appleConfig:`, `googlePlayConfig:`), não um
-  `VerifyPurchaseConfig` posicional — o docstring do pacote está desatualizado; o código acima segue a
-  assinatura real da versão 1.1.0.
-- **`getOneTimePurchaseToken` / `getSubscriptionToken`** vêm do próprio pacote e já escolhem o token certo
-  por plataforma (iOS: `purchaseID` ou `originalTransactionId`; Android: `serverVerificationData`).
-- **O verificador lança exceção em erro de rede/API e devolve `false` só quando a compra é realmente inválida**
-  — é isso que permite separar `unavailable` de `invalid`.
-- **Ambiente Xcode** (arquivo `.storekit` de teste local) não é verificável pela App Store Server API: para
-  testar o modo 🅰 use uma conta Sandbox Tester, não o StoreKit Configuration File.
+- **`initialize` roda uma vez, no `main()`** (ver `setup.md` §4) — não por transação. Na 1.x o service
+  re-inicializava o pacote a cada compra para trocar `useSandbox`; na 2.0.0 o default
+  `AppleEnvironment.productionWithSandboxFallback` tenta produção e, se a Apple responder "transação não
+  encontrada", repete no sandbox. TestFlight e App Review funcionam sem nenhuma lógica no app.
+- **`VerificationResult.isValid` já é a regra de acesso** do pacote: assinatura Apple em status 1/4, Google em
+  `ACTIVE`/`CANCELED`/`IN_GRACE_PERIOD` com `expiryTime` futuro; compra única não reembolsada. Não reimplemente
+  a regra olhando `state` — use `state` só para decidir *o que fazer* quando `isValid` é `false`.
+- **Token desconhecido não é exceção**: vem como `state: notFound`. Exceção é só rede/API/config — é isso que
+  separa `invalid` de `unavailable` sem heurística.
+- **`getOneTimePurchaseToken` / `getSubscriptionToken`** lançam `VerifyPurchaseException(invalidToken)` quando
+  não conseguem extrair o token (ex.: StoreKit 1 sem JSON). O `try` acima trata como `unavailable`.
+- **Não confie em `result.raw`** para decidir acesso: é o payload cru da loja, útil só para log/depuração.
+- **Ambiente Xcode** (arquivo `.storekit` de teste local) não é verificável pela App Store Server API — a Apple
+  responde "não encontrado" e a compra vira `invalid`. Para testar o modo 🅰 use uma conta Sandbox Tester.
+- **Assinatura com upgrade/downgrade**: o registro é gravado sob o `productId` que a loja devolveu. Para "é
+  premium?", pergunte por qualquer ID de `PurchaseIds.subscriptions`
+  (`Future.wait(PurchaseIds.subscriptions.map(hasAccess))`), não por um plano específico.
 
 ---
 
@@ -408,8 +528,8 @@ detalhe.
 
 Vale quando o app tem usuário autenticado e quer (a) enxergar o status premium por usuário em um documento
 remoto e/ou (b) conceder premium manualmente sem compra. A regra está em `SKILL.md` ("Apps com login"); aqui
-fica o esqueleto de como o `LocalEntitlementService` da seção 5 muda — o resto (Cubit, View, verificação na
-compra) não muda.
+fica o esqueleto de como o `LocalEntitlementService` da seção 5 muda — o resto (`PurchaseVerifier`, Cubit,
+View, verificação na compra) não muda.
 
 ```dart
 /// Plataformas do campo `plataforma` no documento remoto.
@@ -424,18 +544,19 @@ class LocalEntitlementService implements EntitlementService {
   final RemoteEntitlementDataSource _remote; // lê/grava users/{uid} com merge
   final String? Function() _currentUid;
 
-  /// Registro do aparelho: escrito SOMENTE aqui. Nunca por um espelho do remoto.
-  static String entitlementKey(String productId) => 'entitlement_$productId';
-
-  /// Último status resolvido (cache de sessão) — é o que `hasAccess` lê.
+  /// Último status resolvido (cache de sessão) — é o que `hasAccess` lê
+  /// quando há grant manual.
   static const statusKey = 'entitlement_status';
 
   @override
-  Future<VerificationResult> verifyAndGrant(PurchaseDetails purchase) async {
-    // ...verificação idêntica à seção 5; se `valid`:
-    await _storage.setString(entitlementKey(productId), jsonEncode({...}));
-    await _mirrorRemote(isPlus: true, platform: purchase.verificationData.source);
-    return VerificationResult.valid;
+  Future<GrantResult> verifyAndGrant(PurchaseDetails purchase) async {
+    // ...verificação idêntica à seção 5; se `valid`, depois do _saveRecord:
+    await _mirrorRemote(
+      isPlus: true,
+      platform: purchase.verificationData.source,
+      expiresAt: result.expiresAt,
+    );
+    return GrantResult.valid;
   }
 
   @override
@@ -454,47 +575,64 @@ class LocalEntitlementService implements EntitlementService {
     // 2. Só o registro DESTE aparelho entra na re-verificação. O token que
     //    estiver em users/{uid} não concede acesso aqui.
     for (final productId in PurchaseIds.subscriptions) {
-      final raw = await _storage.getString(entitlementKey(productId))
+      final record = await _readRecord(productId)
           ?? await _migrateLegacyCache(productId); // ver nota abaixo
-      if (raw == null) {
+      if (record == null) {
         await _storage.setString(statusKey, jsonEncode({'isPlus': false}));
         continue; // remoto intocado: não há evidência para escrever
       }
-      final data = jsonDecode(raw) as Map<String, dynamic>;
-      final bool active;
+      final VerificationResult result;
       try {
-        active = data['source'] == EntitlementPlatform.appStore
-            ? await _verifier.verifySubscriptionWithAppStore(data['token'] as String)
-            : await _verifier.verifySubscriptionWithGooglePlay(data['token'] as String);
-      } catch (_) {
+        result = await _verifier.verify(
+          record['token'] as String,
+          _platformOf(record['source'] as String), // plataforma do REGISTRO
+          subscription: true,
+        );
+      } on VerifyPurchaseException {
         return; // sem rede: mantém o último status conhecido
       }
-      if (!active) await _storage.remove(entitlementKey(productId));
-      await _storage.setString(statusKey, jsonEncode({'isPlus': active, ...data}));
-      await _mirrorRemote(isPlus: active, platform: data['source'] as String);
+      // Mesma tabela da seção 5.3 para remover/atualizar o registro, e então:
+      await _storage.setString(statusKey, jsonEncode({'isPlus': result.isValid}));
+      await _mirrorRemote(
+        isPlus: result.isValid,
+        platform: record['source'] as String,
+        expiresAt: result.expiresAt,
+      );
     }
   }
 
   /// Espelho para o admin enxergar o status. Saída, nunca entrada.
-  Future<void> _mirrorRemote({required bool isPlus, required String platform}) async {
+  Future<void> _mirrorRemote({
+    required bool isPlus,
+    required String platform,
+    DateTime? expiresAt,
+  }) async {
     final uid = _currentUid();
     if (uid == null) return;
-    await _remote.merge(uid, {'isPlus': isPlus, 'plataforma': platform});
+    await _remote.merge(uid, {
+      'isPlus': isPlus,
+      'plataforma': platform,
+      'expiresAt': expiresAt?.toIso8601String(),
+    });
   }
 }
 ```
 
 Pontos que importam:
 
-- **Use `verifySubscriptionWithAppStore`/`WithGooglePlay` pela plataforma do registro**, não o
-  `verifySubscription()` genérico do pacote, que decide por `Platform.isIOS` — o registro pode ter sido
-  migrado de um cache gravado em outra plataforma.
+- **A plataforma vem do registro, não do aparelho**: por isso `PurchaseVerifier.verify` recebe `StorePlatform`
+  e usa `...WithAppStore`/`...WithGooglePlay` — o registro pode ter sido migrado de um cache gravado em outra
+  plataforma.
+- **O espelho nunca leva o token**: `users/{uid}` recebe `isPlus`, `plataforma` e `expiresAt` (vindo do
+  `VerificationResult`, útil para o admin). Sem token no remoto, não há o que copiar por engano.
 - **Limpeza de sessão**: o helper de logout/exclusão de conta remove `statusKey` (é da sessão) e **não** remove
   `entitlement_<productId>` (é do aparelho). Confira que nada chama `StorageService.clear()`.
 - **`_migrateLegacyCache`**: só existe se uma versão anterior espelhava o remoto no cache local. Lê o cache
-  antigo, promove o token a `entitlement_<productId>` uma única vez e devolve o registro; sem token, `null`.
-  Remova o helper quando a base instalada tiver migrado.
-- **Testes do `refresh()`** que provam a regra (fakes de storage e remoto): grant manual → sem escrita remota;
-  remoto com token mas aparelho sem registro → sem acesso, remoto intocado, `verify*` nunca chamado; registro
-  ativo → acesso + espelho; registro inativo → chave removida + espelho `isPlus: false`; verificador lança →
-  último status mantido; cache antigo com token → migração única.
+  antigo, promove o token a `entitlement_<productId>` uma única vez (com `source`, `isValid: false` e sem
+  `checkedAt` — o `refresh()` corrente preenche) e devolve o registro; sem token, `null`. Remova o helper
+  quando a base instalada tiver migrado.
+- **Testes do `refresh()`** que provam a regra (fakes de storage, remoto e `PurchaseVerifier`): grant manual →
+  sem escrita remota; remoto com token mas aparelho sem registro → sem acesso, remoto intocado, `verify` nunca
+  chamado; registro ativo → acesso + espelho; registro `expired` → sem acesso, token mantido, espelho
+  `isPlus: false`; registro `revoked` → chave removida; verificador lança → último status mantido; cache antigo
+  com token → migração única.

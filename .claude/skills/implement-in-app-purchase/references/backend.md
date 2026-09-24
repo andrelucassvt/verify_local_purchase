@@ -175,7 +175,7 @@ class ServerEntitlementService implements EntitlementService {
   Set<String> _activeProductIds = const {};
 
   @override
-  Future<VerificationResult> verifyAndGrant(PurchaseDetails purchase) async {
+  Future<GrantResult> verifyAndGrant(PurchaseDetails purchase) async {
     final result = await _repository.verifyPurchase(
       productId: purchase.productID,
       serverVerificationData: purchase.verificationData.serverVerificationData,
@@ -184,13 +184,13 @@ class ServerEntitlementService implements EntitlementService {
     );
     return result.when(
       ok: (isValid) {
-        if (!isValid) return VerificationResult.invalid;
+        if (!isValid) return GrantResult.invalid;
         _activeProductIds = {..._activeProductIds, purchase.productID};
-        return VerificationResult.valid;
+        return GrantResult.valid;
       },
       // Qualquer falha de rede/servidor é `unavailable`: nunca complete uma
       // transação que o servidor não confirmou nem negou.
-      error: (_) => VerificationResult.unavailable,
+      error: (_) => GrantResult.unavailable,
     );
   }
 
