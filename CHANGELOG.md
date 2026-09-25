@@ -1,3 +1,7 @@
+## 2.0.1
+
+* chore: bumps `in_app_purchase` to `^3.3.1` (pulls `in_app_purchase_android` `^0.5.0` / Google Play Billing Library 8.0.0). Apps calling `queryPurchaseHistory` on Android must migrate to `queryPurchases`.
+
 ## 2.0.0
 
 **Breaking changes** — see "Migrating from 1.x" in the README.
