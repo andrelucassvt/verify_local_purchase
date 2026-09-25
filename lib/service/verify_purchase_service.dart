@@ -12,6 +12,7 @@ import '../models/store_platform.dart';
 import '../models/verification_result.dart';
 import '../models/verify_purchase_config.dart';
 import '../models/verify_purchase_exception.dart';
+import 'apple_jws_payload.dart';
 import 'store_response_parser.dart';
 
 /// Builds the App Store API client for an environment. Overridable in tests.
@@ -131,9 +132,7 @@ class VerifyPurchaseService {
           );
 
           for (final signedTransaction in historyResponse.signedTransactions) {
-            final tx = JWSTransactionDecodedPayload.fromEncodedPayload(
-              signedTransaction,
-            );
+            final tx = AppleJwsPayload.decode(signedTransaction);
             if (tx.transactionId == transactionId ||
                 tx.originalTransactionId == transactionId) {
               return StoreResponseParser.appleTransaction(
@@ -174,10 +173,12 @@ class VerifyPurchaseService {
 
     return _callAppStore((api) async {
       final refundResponse = await api.getRefundHistory(originalTransactionId);
-      return refundResponse.signedTransactions.map((signed) {
-        final tx = JWSTransactionDecodedPayload.fromEncodedPayload(signed);
-        return RefundEntry.fromAppleTransaction(tx);
-      }).toList();
+      return refundResponse.signedTransactions
+          .map(
+            (signed) =>
+                StoreResponseParser.appleRefund(AppleJwsPayload.decode(signed)),
+          )
+          .toList();
     }, onNotFound: (_) => <RefundEntry>[]);
   }
 

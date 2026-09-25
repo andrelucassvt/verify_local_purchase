@@ -15,6 +15,7 @@ Map<String, dynamic> appleTransactionJson({
   String productId = 'premium_monthly',
   int? expiresDate,
   int? revocationDate,
+  int? offerType,
 }) {
   return {
     'bundleId': 'com.example.app',
@@ -27,6 +28,7 @@ Map<String, dynamic> appleTransactionJson({
     'type': 'Auto-Renewable Subscription',
     'expiresDate': ?expiresDate,
     'revocationDate': ?revocationDate,
+    'offerType': ?offerType,
   };
 }
 
@@ -36,6 +38,8 @@ LastTransactionsItem appleLastTransaction({
   String productId = 'premium_monthly',
   int? expiresDate,
   int autoRenewStatus = 1,
+  int? offerType,
+  int? gracePeriodExpiresDate,
 }) {
   return LastTransactionsItem(
     originalTransactionId,
@@ -46,12 +50,15 @@ LastTransactionsItem appleLastTransaction({
       'originalTransactionId': originalTransactionId,
       'productId': productId,
       'signedDate': 1700000000000,
+      'offerType': ?offerType,
+      'gracePeriodExpiresDate': ?gracePeriodExpiresDate,
     }),
     fakeJws(
       appleTransactionJson(
         originalTransactionId: originalTransactionId,
         productId: productId,
         expiresDate: expiresDate,
+        offerType: offerType,
       ),
     ),
   );

@@ -1,3 +1,7 @@
+## 2.0.3
+
+* fix: App Store subscriptions and purchases with an introductory offer or free trial failed with `VerifyPurchaseException(invalidResponse)` (`type 'int' is not a subtype of type 'String?'`). Transaction and renewal payloads are now decoded leniently instead of through the `app_store_server_sdk` models, whose `offerType` / `gracePeriodExpiresDate` types don't match Apple's responses. `willAutoRenew` is also filled in during billing grace period.
+
 ## 2.0.1
 
 * chore: bumps `in_app_purchase` to `^3.3.1` (pulls `in_app_purchase_android` `^0.5.0` / Google Play Billing Library 8.0.0). Apps calling `queryPurchaseHistory` on Android must migrate to `queryPurchases`.

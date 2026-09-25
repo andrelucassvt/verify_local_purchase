@@ -1,7 +1,9 @@
 import 'package:app_store_server_sdk/app_store_server_sdk.dart';
 
+import '../models/refund_entry.dart';
 import '../models/store_platform.dart';
 import '../models/verification_result.dart';
+import 'apple_jws_payload.dart';
 
 /// Pure functions that turn store responses into [VerificationResult].
 ///
@@ -54,7 +56,11 @@ class StoreResponseParser {
 
     final decoded = [
       for (final item in candidates)
-        (item: item, tx: item.transactionInfo, renewal: _renewalOf(item)),
+        (
+          item: item,
+          tx: AppleJwsPayload.decode(item.signedTransactionInfo),
+          renewal: _renewalOf(item),
+        ),
     ];
     decoded.sort((a, b) {
       final byRank = (_appleStatusRank[b.item.status] ?? 0).compareTo(
@@ -65,9 +71,8 @@ class StoreResponseParser {
     });
 
     final best = decoded.first;
-    final willAutoRenew = best.renewal == null
-        ? null
-        : best.renewal!.autoRenewStatus == 1;
+    final autoRenewStatus = best.renewal?.autoRenewStatus;
+    final willAutoRenew = autoRenewStatus == null ? null : autoRenewStatus == 1;
 
     final VerificationState state;
     switch (best.item.status) {
@@ -99,15 +104,15 @@ class StoreResponseParser {
       isSandbox: isSandbox,
       raw: {
         'status': best.item.status,
-        'transaction': best.tx.toJson(),
-        if (best.renewal != null) 'renewalInfo': best.renewal!.toJson(),
+        'transaction': best.tx.json,
+        if (best.renewal != null) 'renewalInfo': best.renewal!.json,
       },
     );
   }
 
   /// Parses a single decoded transaction from `getTransactionHistory`.
   static VerificationResult appleTransaction(
-    JWSTransactionDecodedPayload tx, {
+    AppleJwsPayload tx, {
     required String environment,
   }) {
     final revoked = tx.revocationDate != null;
@@ -118,7 +123,19 @@ class StoreResponseParser {
       productId: tx.productId,
       expiresAt: _fromMillis(tx.expiresDate),
       isSandbox: _isAppleSandbox(environment),
-      raw: tx.toJson(),
+      raw: tx.json,
+    );
+  }
+
+  /// Maps a transaction from `getRefundHistory` to a [RefundEntry].
+  static RefundEntry appleRefund(AppleJwsPayload tx) {
+    return RefundEntry(
+      platform: StorePlatform.apple,
+      transactionId: tx.transactionId ?? '',
+      originalId: tx.originalTransactionId ?? '',
+      productId: tx.productId,
+      refundDate: DateTime.fromMillisecondsSinceEpoch(tx.revocationDate ?? 0),
+      raw: tx.json,
     );
   }
 
@@ -217,10 +234,10 @@ class StoreResponseParser {
     );
   }
 
-  static JWSRenewalInfoDecodedPayload? _renewalOf(LastTransactionsItem item) {
+  static AppleJwsPayload? _renewalOf(LastTransactionsItem item) {
     if (item.signedRenewalInfo.isEmpty) return null;
     try {
-      return item.renewalInfo;
+      return AppleJwsPayload.decode(item.signedRenewalInfo);
     } catch (_) {
       return null;
     }

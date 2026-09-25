@@ -1,7 +1,7 @@
-import 'package:app_store_server_sdk/app_store_server_sdk.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:verify_local_purchase/models/store_platform.dart';
 import 'package:verify_local_purchase/models/verification_result.dart';
+import 'package:verify_local_purchase/service/apple_jws_payload.dart';
 import 'package:verify_local_purchase/service/store_response_parser.dart';
 
 import 'helpers/apple_fixtures.dart';
@@ -206,6 +206,26 @@ void main() {
       expect(result.productId, 'active_one');
     });
 
+    test('offer fields sent as numbers (free trial) are decoded', () {
+      final result = StoreResponseParser.appleSubscription(
+        appleStatusResponse([
+          [
+            appleLastTransaction(
+              status: 4,
+              expiresDate: expires,
+              offerType: 1,
+              gracePeriodExpiresDate: expires,
+            ),
+          ],
+        ]),
+        'orig_1',
+      );
+      expect(result.isValid, isTrue);
+      expect(result.state, VerificationState.gracePeriod);
+      expect(result.willAutoRenew, isTrue);
+      expect(result.raw['transaction']['offerType'], 1);
+    });
+
     test('no subscriptions → notFound', () {
       final result = StoreResponseParser.appleSubscription(
         appleStatusResponse([], environment: 'Sandbox'),
@@ -217,9 +237,52 @@ void main() {
     });
   });
 
+  group('AppleJwsPayload.decode', () {
+    test('reads numeric and string fields leniently', () {
+      final tx = AppleJwsPayload.decode(
+        fakeJws({
+          'transactionId': 123,
+          'productId': 'premium',
+          'expiresDate': '1700000000000',
+          'offerType': 1,
+        }),
+      );
+      expect(tx.transactionId, '123');
+      expect(tx.productId, 'premium');
+      expect(tx.expiresDate, 1700000000000);
+      expect(tx.revocationDate, isNull);
+    });
+
+    test('malformed JWS → FormatException', () {
+      expect(
+        () => AppleJwsPayload.decode('not-a-jws'),
+        throwsA(isA<FormatException>()),
+      );
+    });
+  });
+
+  group('StoreResponseParser.appleRefund', () {
+    test('maps the transaction to a RefundEntry', () {
+      final entry = StoreResponseParser.appleRefund(
+        AppleJwsPayload({
+          ...appleTransactionJson(revocationDate: 1700000000000),
+          'offerType': 1,
+        }),
+      );
+      expect(entry.platform, StorePlatform.apple);
+      expect(entry.transactionId, 'tx_1');
+      expect(entry.originalId, 'orig_1');
+      expect(entry.productId, 'premium_monthly');
+      expect(
+        entry.refundDate,
+        DateTime.fromMillisecondsSinceEpoch(1700000000000),
+      );
+    });
+  });
+
   group('StoreResponseParser.appleTransaction', () {
     test('not revoked → purchased', () {
-      final tx = JWSTransactionDecodedPayload.fromJson(appleTransactionJson());
+      final tx = AppleJwsPayload(appleTransactionJson());
       final result = StoreResponseParser.appleTransaction(
         tx,
         environment: 'Production',
@@ -231,7 +294,7 @@ void main() {
     });
 
     test('revoked → revoked', () {
-      final tx = JWSTransactionDecodedPayload.fromJson(
+      final tx = AppleJwsPayload(
         appleTransactionJson(revocationDate: 1700000000000),
       );
       final result = StoreResponseParser.appleTransaction(
